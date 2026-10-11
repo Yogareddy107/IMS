@@ -45,6 +45,39 @@ export async function POST(request: Request) {
     // Target email resolution: default to admin fallback if no recipient passed
     const targetEmail = cleanRecipientEmail || adminFallbackEmail;
 
+    // Resolve dynamic production app URL from request headers or environment variables
+    const headerOrigin = request.headers.get('origin');
+    const headerXForwardedHost = request.headers.get('x-forwarded-host');
+    const headerHost = request.headers.get('host');
+    const headerProto = request.headers.get('x-forwarded-proto') || 'https';
+
+    const detectedOrigin =
+      headerOrigin ||
+      (headerXForwardedHost ? `${headerProto}://${headerXForwardedHost}` : null) ||
+      (headerHost && !headerHost.includes('localhost') ? `${headerProto}://${headerHost}` : null) ||
+      process.env.NEXT_PUBLIC_APP_URL ||
+      (process.env.VERCEL_PROJECT_PRODUCTION_URL
+        ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+        : null) ||
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ||
+      'https://intraspherelabsims.vercel.app';
+
+    // Format actionUrl cleanly so it NEVER points to localhost on live deployment
+    let effectiveActionUrl = detectedOrigin;
+    if (actionUrl && typeof actionUrl === 'string') {
+      const trimmedUrl = actionUrl.trim();
+      if (trimmedUrl.startsWith('http://localhost') && !detectedOrigin.includes('localhost')) {
+        // Strip localhost and replace with live detected production origin
+        effectiveActionUrl = trimmedUrl.replace(/^http:\/\/localhost(:\d+)?/, detectedOrigin);
+      } else if (trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://')) {
+        effectiveActionUrl = trimmedUrl;
+      } else {
+        effectiveActionUrl = `${detectedOrigin}${trimmedUrl.startsWith('/') ? '' : '/'}${trimmedUrl}`;
+      }
+    } else {
+      effectiveActionUrl = `${detectedOrigin}/`;
+    }
+
     // Helper to generate the email HTML template
     const generateHtml = (isForwardedSandbox = false) => `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 32px 24px; color: #111111; line-height: 1.5; background-color: #ffffff;">
@@ -66,8 +99,10 @@ export async function POST(request: Request) {
 
         ${
           isForwardedSandbox
-            ? `<div style="background-color: #f3f4f6; border-left: 3px solid #111111; padding: 10px 14px; margin-bottom: 20px; font-size: 12px; color: #374151;">
-                <strong>Resend Sandbox Routing:</strong> This notification was addressed to <strong>${recipientName || 'Intern'} &lt;${recipientEmail}&gt;</strong> and delivered to your registered admin inbox. To send directly to intern inboxes, verify your domain at <a href="https://resend.com/domains" style="color: #111111; text-decoration: underline;">resend.com/domains</a>.
+            ? `<div style="background-color: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; padding: 12px 16px; margin-bottom: 20px; font-size: 12px; color: #92400e; border-radius: 4px;">
+                <strong>Resend Sandbox Alert:</strong> This message was addressed to <strong>${recipientName || 'Intern'} &lt;${recipientEmail}&gt;</strong>.<br/>
+                Because your Resend account uses the free testing domain (<code>onboarding@resend.dev</code>), Resend automatically restricts external sending and delivered it to your admin address (<strong>${adminFallbackEmail}</strong>).<br/>
+                <span style="display: inline-block; margin-top: 6px;">To send directly to intern &amp; coordinator inboxes, verify your domain at <a href="https://resend.com/domains" style="color: #92400e; font-weight: bold; text-decoration: underline;">resend.com/domains</a>.</span>
               </div>`
             : ''
         }
@@ -93,7 +128,7 @@ export async function POST(request: Request) {
 
         <!-- Action CTA -->
         <div style="margin: 28px 0; text-align: left;">
-          <a href="${actionUrl || 'http://localhost:3000'}" style="display: inline-block; background-color: #111111; color: #ffffff; text-decoration: none; font-size: 13px; font-weight: 600; padding: 10px 20px; border-radius: 6px;">
+          <a href="${effectiveActionUrl}" style="display: inline-block; background-color: #111111; color: #ffffff; text-decoration: none; font-size: 13px; font-weight: 600; padding: 10px 20px; border-radius: 6px;">
             Open IntraSphere IMS &rarr;
           </a>
         </div>
@@ -156,7 +191,7 @@ export async function POST(request: Request) {
             if (fallbackRes.ok) {
               const fbData = await fallbackRes.json();
               emailSent = true;
-              actualDeliveredTo = `${adminFallbackEmail} (Forwarded via Sandbox)`;
+              actualDeliveredTo = `${adminFallbackEmail} (Sandbox Forwarded)`;
               emailId = fbData.id;
             } else {
               errorDetail = JSON.stringify(await fallbackRes.json());
@@ -199,17 +234,25 @@ export async function POST(request: Request) {
       timestamp: new Date().toISOString(),
     });
 
+    const isSandboxForwarded =
+      actualDeliveredTo.includes('Sandbox') || actualDeliveredTo.includes('Forwarded');
+
     return NextResponse.json({
       success: true,
       delivered: {
         email: emailSent,
         deliveredTo: actualDeliveredTo,
+        isSandboxForwarded,
+        adminFallbackEmail,
+        originalRecipient: cleanRecipientEmail,
         emailId,
         webhook: webhookSent,
         simulated: !emailSent && !webhookSent,
       },
       message: emailSent
-        ? `Out-of-app email alert delivered to ${actualDeliveredTo}`
+        ? isSandboxForwarded
+          ? `Delivered to admin email (${adminFallbackEmail}) via Resend Sandbox test mode. Verify domain at resend.com/domains to deliver directly to ${cleanRecipientEmail}.`
+          : `Delivered to ${actualDeliveredTo}`
         : errorDetail
         ? `Notification logged (Resend status: ${errorDetail})`
         : 'Notification simulated in local environment',

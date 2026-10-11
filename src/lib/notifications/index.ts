@@ -28,6 +28,9 @@ export interface NotificationResult {
   delivered?: {
     email: boolean;
     deliveredTo?: string;
+    isSandboxForwarded?: boolean;
+    adminFallbackEmail?: string;
+    originalRecipient?: string;
     emailId?: string;
     webhook: boolean;
     simulated: boolean;
@@ -111,8 +114,14 @@ export const sendDesktopNotification = async (title: string, body: string, actio
 export const dispatchNotification = async (
   payload: NotificationPayload
 ): Promise<NotificationResult> => {
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const enrichedPayload: NotificationPayload = {
+    ...payload,
+    actionUrl: payload.actionUrl || (origin ? `${origin}/` : undefined),
+  };
+
   // A. Fire OS Desktop notification if enabled in browser
-  sendDesktopNotification(payload.title, payload.body, payload.actionUrl);
+  sendDesktopNotification(enrichedPayload.title, enrichedPayload.body, enrichedPayload.actionUrl);
 
   // B. Call server API to send transactional email and/or Slack/Discord webhook
   try {
@@ -120,7 +129,7 @@ export const dispatchNotification = async (
       const res = await fetch('/api/notifications', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(enrichedPayload),
       });
       if (res.ok) {
         const data = await res.json();

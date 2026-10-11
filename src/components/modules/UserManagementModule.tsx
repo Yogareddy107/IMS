@@ -19,6 +19,7 @@ import {
   EyeOff,
   Send,
   HelpCircle,
+  ExternalLink,
 } from 'lucide-react';
 import { useAuth } from '@/context/auth-context';
 import { useData } from '@/context/data-context';
@@ -61,6 +62,9 @@ export const UserManagementModule: React.FC = () => {
     tempPassword: string;
     emailDispatched: boolean;
     emailMessage?: string;
+    isSandboxForwarded?: boolean;
+    deliveredTo?: string;
+    loginUrl?: string;
   } | null>(null);
 
   // If not admin, access denied
@@ -152,6 +156,11 @@ export const UserManagementModule: React.FC = () => {
       // 3. Dispatch Invitation Email if requested
       let emailDispatched = false;
       let emailMessage = '';
+      let isSandboxForwarded = false;
+      let deliveredTo = '';
+      const appOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+      const loginUrl = `${appOrigin}/?login=true&email=${encodeURIComponent(cleanEmail)}`;
+
       if (provisionForm.send_email) {
         try {
           const roleTitle =
@@ -166,12 +175,18 @@ export const UserManagementModule: React.FC = () => {
             recipientName: provisionForm.full_name.trim(),
             senderName: currentUser?.full_name || 'IntraSphere Admin',
             title: `Your IntraSphere IMS ${roleTitle} Account Credentials`,
-            body: `Welcome to IntraSphere Labs Internship Management System.\n\nYour account has been provisioned with the following credentials:\n\nRole: ${roleTitle}\nEmail: ${cleanEmail}\nPassword: ${finalPassword}\n\nPlease sign in to access your portal, onboarding roadmap, and tasks.`,
+            body: `Welcome to IntraSphere Labs Internship Management System.\n\nYour account has been provisioned with the following credentials:\n\nRole: ${roleTitle}\nEmail: ${cleanEmail}\nPassword: ${finalPassword}\nPortal Link: ${loginUrl}\n\nPlease sign in to access your portal, onboarding roadmap, and tasks.`,
+            actionUrl: loginUrl,
             type: 'general',
           });
 
           emailDispatched = !!notifRes.delivered?.email;
           emailMessage = notifRes.message || 'Invitation sent';
+          deliveredTo = notifRes.delivered?.deliveredTo || '';
+          isSandboxForwarded =
+            !!notifRes.delivered?.isSandboxForwarded ||
+            deliveredTo.includes('Sandbox') ||
+            deliveredTo.includes('Forwarded');
         } catch (err) {
           console.error('Failed to dispatch invite email:', err);
         }
@@ -182,6 +197,9 @@ export const UserManagementModule: React.FC = () => {
         tempPassword: finalPassword,
         emailDispatched,
         emailMessage,
+        isSandboxForwarded,
+        deliveredTo,
+        loginUrl,
       });
     } catch (err) {
       console.error('Provisioning error:', err);
@@ -438,7 +456,29 @@ export const UserManagementModule: React.FC = () => {
                   </div>
                 </div>
 
-                {provisionResult.emailDispatched ? (
+                {provisionResult.isSandboxForwarded ? (
+                  <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-[11px] space-y-1.5">
+                    <div className="font-semibold flex items-center gap-1.5 text-amber-950">
+                      <AlertCircle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                      <span>Invitation Routed to Admin Email (Resend Sandbox Mode)</span>
+                    </div>
+                    <p className="text-amber-800 leading-relaxed">
+                      Resend&apos;s testing domain (<code>onboarding@resend.dev</code>) restricts delivery to your registered admin inbox (<strong>teamintrasphere@gmail.com</strong>).
+                    </p>
+                    <p className="text-amber-800 leading-relaxed">
+                      To send directly to personal intern inboxes, add and verify your custom domain at{' '}
+                      <a
+                        href="https://resend.com/domains"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline font-bold text-amber-950 hover:text-black inline-flex items-center gap-0.5"
+                      >
+                        resend.com/domains <ExternalLink className="w-2.5 h-2.5" />
+                      </a>
+                      .
+                    </p>
+                  </div>
+                ) : provisionResult.emailDispatched ? (
                   <div className="p-2.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] flex items-center gap-1.5">
                     <Mail className="w-3.5 h-3.5 text-emerald-700" />
                     <span>Invitation email sent to inbox ({provisionResult.emailMessage}).</span>
@@ -451,29 +491,49 @@ export const UserManagementModule: React.FC = () => {
                 )}
               </div>
 
-              <div className="pt-2 flex justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  icon={copiedKey === 'modal-copy' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                  onClick={() =>
-                    handleCopy(
-                      `IntraSphere IMS Login Credentials:\nEmail: ${provisionResult.account.email}\nPassword: ${provisionResult.tempPassword}\nPortal: ${window.location.origin}`,
-                      'modal-copy'
-                    )
-                  }
+              <div className="pt-2 flex flex-wrap items-center justify-between gap-2">
+                <a
+                  href={`mailto:${provisionResult.account.email}?subject=${encodeURIComponent(
+                    `Your IntraSphere IMS Login Credentials (${provisionResult.account.role.toUpperCase()})`
+                  )}&body=${encodeURIComponent(
+                    `Hello ${provisionResult.account.full_name},\n\nYour IntraSphere IMS account has been provisioned.\n\nLogin URL: ${provisionResult.loginUrl || (typeof window !== 'undefined' ? window.location.origin : '')}\nEmail: ${provisionResult.account.email}\nTemporary Password: ${provisionResult.tempPassword}\n\nPlease sign in to access your portal, onboarding checklist, and assigned tasks.\n\nBest regards,\nIntraSphere Labs Team`
+                  )}`}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold bg-neutral-100 hover:bg-neutral-200 text-neutral-800 border border-neutral-300"
                 >
-                  {copiedKey === 'modal-copy' ? 'Copied to Clipboard' : 'Copy Credentials'}
-                </Button>
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="sm"
-                  onClick={() => setIsProvisionModalOpen(false)}
-                >
-                  Done
-                </Button>
+                  <Mail className="w-3 h-3 text-neutral-700" />
+                  Email Candidate via Mail App
+                </a>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    icon={
+                      copiedKey === 'modal-copy' ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )
+                    }
+                    onClick={() =>
+                      handleCopy(
+                        `IntraSphere IMS Login Credentials:\nName: ${provisionResult.account.full_name}\nRole: ${provisionResult.account.role.toUpperCase()}\nEmail: ${provisionResult.account.email}\nPassword: ${provisionResult.tempPassword}\nPortal Link: ${provisionResult.loginUrl || (typeof window !== 'undefined' ? `${window.location.origin}/?login=true&email=${encodeURIComponent(provisionResult.account.email)}` : '')}`,
+                        'modal-copy'
+                      )
+                    }
+                  >
+                    {copiedKey === 'modal-copy' ? 'Copied to Clipboard' : 'Copy Credentials'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    onClick={() => setIsProvisionModalOpen(false)}
+                  >
+                    Done
+                  </Button>
+                </div>
               </div>
             </div>
           ) : (
