@@ -1,62 +1,29 @@
 -- ==============================================================================
 -- IntraSphere Labs — Internship Management System (IMS)
--- Supabase PostgreSQL Schema (Passwordless, Supabase Backend)
+-- Supabase Clean Migration & Real-Time Backend Schema
 -- ==============================================================================
 
 -- 1. EXTENSIONS
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 2. ENUMS & DOMAINS
-DO $$ BEGIN
-  CREATE TYPE user_role_enum AS ENUM ('admin', 'coordinator', 'intern');
-EXCEPTION WHEN duplicate_object THEN null; END $$;
+-- 2. CLEAN DROP EXISTING IMS TABLES TO AVOID SCHEMA DRIFT / COLUMN MISMATCHES
+DROP TABLE IF EXISTS public.activity_logs CASCADE;
+DROP TABLE IF EXISTS public.system_settings CASCADE;
+DROP TABLE IF EXISTS public.certificates CASCADE;
+DROP TABLE IF EXISTS public.reviews CASCADE;
+DROP TABLE IF EXISTS public.announcements CASCADE;
+DROP TABLE IF EXISTS public.attendance_logs CASCADE;
+DROP TABLE IF EXISTS public.documents CASCADE;
+DROP TABLE IF EXISTS public.calendar_events CASCADE;
+DROP TABLE IF EXISTS public.tasks CASCADE;
+DROP TABLE IF EXISTS public.onboarding_items CASCADE;
+DROP TABLE IF EXISTS public.interns CASCADE;
+DROP TABLE IF EXISTS public.projects CASCADE;
+DROP TABLE IF EXISTS public.internship_roles CASCADE;
+DROP TABLE IF EXISTS public.profiles CASCADE;
 
-DO $$ BEGIN
-  CREATE TYPE user_status_enum AS ENUM ('active', 'inactive');
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE internship_status_enum AS ENUM (
-    'Selected', 'Offer Sent', 'Onboarding', 'Active', 'Paused', 'Completed', 'Discontinued'
-  );
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE work_arrangement_enum AS ENUM ('Remote', 'Hybrid', 'In-office');
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE project_status_enum AS ENUM ('Planning', 'Active', 'In Review', 'Completed');
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE task_priority_enum AS ENUM ('Low', 'Medium', 'High', 'Urgent');
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE task_status_enum AS ENUM ('To Do', 'In Progress', 'In Review', 'Blocked', 'Completed');
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE doc_category_enum AS ENUM (
-    'Offer Letter', 'Internship Agreement', 'Project Document', 'Meeting Notes', 'Evaluation', 'Certificate', 'Other'
-  );
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE doc_status_enum AS ENUM ('Draft', 'Pending Review', 'Approved', 'Issued', 'Archived');
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE cert_status_enum AS ENUM ('Draft', 'Approved', 'Issued');
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE audience_enum AS ENUM ('All', 'Coordinators', 'Interns', 'Specific Role');
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
--- 3. PROFILES / USERS (Passwordless, identified by email)
-CREATE TABLE IF NOT EXISTS public.profiles (
+-- 3. PROFILES / USERS (Passwordless, email-based authorization)
+CREATE TABLE public.profiles (
   id TEXT PRIMARY KEY,
   email TEXT UNIQUE NOT NULL,
   full_name TEXT NOT NULL,
@@ -68,11 +35,11 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
-CREATE INDEX IF NOT EXISTS idx_profiles_role ON public.profiles(role);
-CREATE INDEX IF NOT EXISTS idx_profiles_email ON public.profiles(email);
+CREATE INDEX idx_profiles_role ON public.profiles(role);
+CREATE INDEX idx_profiles_email ON public.profiles(email);
 
 -- 4. INTERNSHIP ROLES
-CREATE TABLE IF NOT EXISTS public.internship_roles (
+CREATE TABLE public.internship_roles (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL UNIQUE,
   description TEXT NOT NULL,
@@ -89,7 +56,7 @@ CREATE TABLE IF NOT EXISTS public.internship_roles (
 );
 
 -- 5. PROJECTS
-CREATE TABLE IF NOT EXISTS public.projects (
+CREATE TABLE public.projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   description TEXT NOT NULL,
@@ -97,26 +64,27 @@ CREATE TABLE IF NOT EXISTS public.projects (
   goals TEXT NOT NULL DEFAULT '',
   project_lead_id TEXT,
   lead_name TEXT DEFAULT '',
-  start_date DATE NOT NULL DEFAULT CURRENT_DATE,
-  target_completion_date DATE NOT NULL DEFAULT (CURRENT_DATE + INTERVAL '90 days'),
-  status TEXT NOT NULL DEFAULT 'Active',
   team_member_ids TEXT[] DEFAULT '{}',
   team_member_names TEXT[] DEFAULT '{}',
+  start_date TEXT NOT NULL DEFAULT CURRENT_DATE::text,
+  target_completion_date TEXT NOT NULL DEFAULT (CURRENT_DATE + INTERVAL '90 days')::text,
+  status TEXT NOT NULL DEFAULT 'Active',
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
 -- 6. INTERNS
-CREATE TABLE IF NOT EXISTS public.interns (
+CREATE TABLE public.interns (
   id TEXT PRIMARY KEY,
   user_id TEXT,
   full_name TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
   phone TEXT DEFAULT '',
+  avatar_url TEXT DEFAULT '',
   internship_role_id TEXT,
   role_title TEXT DEFAULT '',
-  start_date DATE NOT NULL DEFAULT CURRENT_DATE,
-  planned_end_date DATE NOT NULL DEFAULT (CURRENT_DATE + INTERVAL '90 days'),
+  start_date TEXT NOT NULL DEFAULT CURRENT_DATE::text,
+  planned_end_date TEXT NOT NULL DEFAULT (CURRENT_DATE + INTERVAL '90 days')::text,
   coordinator_id TEXT,
   coordinator_name TEXT DEFAULT '',
   status TEXT NOT NULL DEFAULT 'Active',
@@ -132,12 +100,12 @@ CREATE TABLE IF NOT EXISTS public.interns (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
-CREATE INDEX IF NOT EXISTS idx_interns_email ON public.interns(email);
-CREATE INDEX IF NOT EXISTS idx_interns_coordinator ON public.interns(coordinator_id);
-CREATE INDEX IF NOT EXISTS idx_interns_status ON public.interns(status);
+CREATE INDEX idx_interns_email ON public.interns(email);
+CREATE INDEX idx_interns_coordinator ON public.interns(coordinator_id);
+CREATE INDEX idx_interns_status ON public.interns(status);
 
 -- 7. ONBOARDING ITEMS
-CREATE TABLE IF NOT EXISTS public.onboarding_items (
+CREATE TABLE public.onboarding_items (
   id TEXT PRIMARY KEY,
   intern_id TEXT NOT NULL,
   title TEXT NOT NULL,
@@ -147,142 +115,154 @@ CREATE TABLE IF NOT EXISTS public.onboarding_items (
   is_completed BOOLEAN NOT NULL DEFAULT false,
   completed_at TIMESTAMPTZ,
   completed_by TEXT,
+  order_index INT NOT NULL DEFAULT 1,
   blocker_notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
-CREATE INDEX IF NOT EXISTS idx_onboarding_intern ON public.onboarding_items(intern_id);
+CREATE INDEX idx_onboarding_intern ON public.onboarding_items(intern_id);
 
 -- 8. TASKS
-CREATE TABLE IF NOT EXISTS public.tasks (
+CREATE TABLE public.tasks (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
-  description TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
   assigned_to_id TEXT,
   assigned_to_name TEXT DEFAULT '',
-  assigned_by_id TEXT,
-  assigned_by_name TEXT DEFAULT '',
   project_id TEXT,
   project_name TEXT DEFAULT '',
-  due_date DATE,
   priority TEXT NOT NULL DEFAULT 'Medium',
   status TEXT NOT NULL DEFAULT 'To Do',
+  start_date TEXT DEFAULT CURRENT_DATE::text,
+  due_date TEXT,
+  estimated_effort TEXT DEFAULT '',
   subtasks JSONB NOT NULL DEFAULT '[]',
   comments JSONB NOT NULL DEFAULT '[]',
-  feedback TEXT,
-  rating INT,
+  created_by_id TEXT,
+  created_by_name TEXT DEFAULT '',
+  is_archived BOOLEAN NOT NULL DEFAULT false,
+  completed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
-CREATE INDEX IF NOT EXISTS idx_tasks_assigned_to ON public.tasks(assigned_to_id);
-CREATE INDEX IF NOT EXISTS idx_tasks_status ON public.tasks(status);
+CREATE INDEX idx_tasks_assigned_to ON public.tasks(assigned_to_id);
+CREATE INDEX idx_tasks_status ON public.tasks(status);
 
 -- 9. CALENDAR EVENTS
-CREATE TABLE IF NOT EXISTS public.calendar_events (
+CREATE TABLE public.calendar_events (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
+  event_type TEXT NOT NULL DEFAULT 'Sprint Review',
+  date TEXT NOT NULL,
+  time TEXT NOT NULL,
+  location_or_link TEXT DEFAULT '',
   description TEXT DEFAULT '',
-  start_time TIMESTAMPTZ NOT NULL,
-  end_time TIMESTAMPTZ NOT NULL,
-  attendee_ids TEXT[] DEFAULT '{}',
-  attendee_names TEXT[] DEFAULT '{}',
-  type TEXT NOT NULL DEFAULT 'Check-in',
-  meeting_link TEXT DEFAULT '',
-  created_by_id TEXT,
+  attendees TEXT[] DEFAULT '{}',
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
 -- 10. DOCUMENTS
-CREATE TABLE IF NOT EXISTS public.documents (
+CREATE TABLE public.documents (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
-  category TEXT NOT NULL DEFAULT 'Other',
-  type TEXT DEFAULT 'Offer Letter',
+  category TEXT NOT NULL DEFAULT 'Offer Letter',
   intern_id TEXT,
   intern_name TEXT DEFAULT '',
+  project_id TEXT,
+  project_name TEXT DEFAULT '',
+  file_url TEXT NOT NULL DEFAULT '#',
+  file_name TEXT NOT NULL DEFAULT '',
+  file_size TEXT NOT NULL DEFAULT '',
   owner_id TEXT,
   owner_name TEXT DEFAULT '',
   status TEXT NOT NULL DEFAULT 'Draft',
-  content TEXT NOT NULL DEFAULT '',
-  metadata JSONB NOT NULL DEFAULT '{}',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
-);
-
-CREATE INDEX IF NOT EXISTS idx_documents_intern ON public.documents(intern_id);
-
--- 11. ATTENDANCE & CHECK-IN LOGS
-CREATE TABLE IF NOT EXISTS public.attendance_logs (
-  id TEXT PRIMARY KEY,
-  intern_id TEXT NOT NULL,
-  intern_name TEXT DEFAULT '',
-  date DATE NOT NULL DEFAULT CURRENT_DATE,
-  hours_logged NUMERIC(4,2) NOT NULL DEFAULT 8.0,
-  tasks_completed_summary TEXT NOT NULL DEFAULT '',
-  blockers_summary TEXT DEFAULT '',
-  coordinator_feedback TEXT,
-  reviewed_by_id TEXT,
-  reviewed_at TIMESTAMPTZ,
+  approved_by TEXT,
+  approved_at TIMESTAMPTZ,
+  offer_details JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
-CREATE INDEX IF NOT EXISTS idx_attendance_intern ON public.attendance_logs(intern_id);
+CREATE INDEX idx_documents_intern ON public.documents(intern_id);
+
+-- 11. ATTENDANCE & CHECK-IN LOGS
+CREATE TABLE public.attendance_logs (
+  id TEXT PRIMARY KEY,
+  intern_id TEXT NOT NULL,
+  intern_name TEXT DEFAULT '',
+  date TEXT NOT NULL,
+  work_summary TEXT NOT NULL DEFAULT '',
+  blockers TEXT DEFAULT '',
+  learning_progress TEXT DEFAULT '',
+  next_steps TEXT DEFAULT '',
+  reviewed_by_id TEXT,
+  reviewer_name TEXT,
+  reviewer_notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+CREATE INDEX idx_attendance_intern ON public.attendance_logs(intern_id);
 
 -- 12. ANNOUNCEMENTS
-CREATE TABLE IF NOT EXISTS public.announcements (
+CREATE TABLE public.announcements (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
-  content TEXT NOT NULL DEFAULT '',
-  body TEXT DEFAULT '',
+  message TEXT NOT NULL,
+  audience TEXT NOT NULL DEFAULT 'All',
+  target_role TEXT,
   author_id TEXT,
   author_name TEXT DEFAULT '',
   author_role TEXT DEFAULT 'admin',
-  audience TEXT NOT NULL DEFAULT 'All',
-  priority TEXT NOT NULL DEFAULT 'Normal',
+  is_archived BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
 -- 13. PERFORMANCE REVIEWS
-CREATE TABLE IF NOT EXISTS public.reviews (
+CREATE TABLE public.reviews (
   id TEXT PRIMARY KEY,
   intern_id TEXT NOT NULL,
   intern_name TEXT DEFAULT '',
   reviewer_id TEXT,
   reviewer_name TEXT DEFAULT '',
   review_period TEXT NOT NULL DEFAULT 'Mid-Term',
-  rating NUMERIC(3,2) NOT NULL DEFAULT 4.0,
-  technical_skills_rating INT NOT NULL DEFAULT 4,
-  communication_rating INT NOT NULL DEFAULT 4,
-  initiative_rating INT NOT NULL DEFAULT 4,
+  role_progress TEXT NOT NULL DEFAULT 'Meets Expectations',
+  communication_rating TEXT NOT NULL DEFAULT 'Strong & Proactive',
+  task_completion_rating TEXT NOT NULL DEFAULT 'Consistently on Schedule',
+  problem_solving_rating TEXT NOT NULL DEFAULT 'High Autonomy & Insight',
   strengths TEXT NOT NULL DEFAULT '',
-  areas_for_improvement TEXT NOT NULL DEFAULT '',
-  coordinator_notes TEXT DEFAULT '',
-  is_shared_with_intern BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+  areas_to_improve TEXT NOT NULL DEFAULT '',
+  mentor_feedback TEXT NOT NULL DEFAULT '',
+  intern_self_reflection TEXT,
+  next_goals TEXT NOT NULL DEFAULT '',
+  private_staff_notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
-CREATE INDEX IF NOT EXISTS idx_reviews_intern ON public.reviews(intern_id);
+CREATE INDEX idx_reviews_intern ON public.reviews(intern_id);
 
 -- 14. CERTIFICATES
-CREATE TABLE IF NOT EXISTS public.certificates (
+CREATE TABLE public.certificates (
   id TEXT PRIMARY KEY,
   intern_id TEXT NOT NULL,
   intern_name TEXT DEFAULT '',
   role_title TEXT DEFAULT '',
-  issue_date DATE NOT NULL DEFAULT CURRENT_DATE,
-  status TEXT NOT NULL DEFAULT 'Issued',
-  verification_code TEXT UNIQUE NOT NULL,
+  duration TEXT NOT NULL DEFAULT '3 Months',
+  completion_status TEXT NOT NULL DEFAULT 'Completed',
   signatory_name TEXT NOT NULL DEFAULT 'IntraSphere Leadership',
   signatory_title TEXT NOT NULL DEFAULT 'Program Director',
-  metadata JSONB NOT NULL DEFAULT '{}',
+  issue_date TEXT NOT NULL DEFAULT CURRENT_DATE::text,
+  certificate_identifier TEXT UNIQUE NOT NULL,
+  status TEXT NOT NULL DEFAULT 'Draft',
+  approved_by TEXT,
+  issued_by TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
-CREATE INDEX IF NOT EXISTS idx_certificates_code ON public.certificates(verification_code);
+CREATE INDEX idx_certificates_ident ON public.certificates(certificate_identifier);
 
 -- 15. ACTIVITY LOGS
-CREATE TABLE IF NOT EXISTS public.activity_logs (
+CREATE TABLE public.activity_logs (
   id TEXT PRIMARY KEY,
   user_id TEXT,
   user_name TEXT DEFAULT '',
@@ -294,14 +274,17 @@ CREATE TABLE IF NOT EXISTS public.activity_logs (
 );
 
 -- 16. SYSTEM SETTINGS
-CREATE TABLE IF NOT EXISTS public.system_settings (
+CREATE TABLE public.system_settings (
   id TEXT PRIMARY KEY DEFAULT 'default',
-  brand_name TEXT NOT NULL DEFAULT 'IntraSphere Labs',
+  company_name TEXT NOT NULL DEFAULT 'IntraSphere Labs',
+  project_name TEXT NOT NULL DEFAULT 'IntraSphere IMS',
+  tagline TEXT NOT NULL DEFAULT 'Next-Gen Internship Management',
+  default_duration TEXT NOT NULL DEFAULT '3 Months',
+  default_work_arrangement TEXT NOT NULL DEFAULT 'Remote',
+  authorized_signatory_name TEXT NOT NULL DEFAULT 'IntraSphere Operations Lead',
+  authorized_signatory_title TEXT NOT NULL DEFAULT 'Operations Director',
   support_email TEXT NOT NULL DEFAULT 'teamintrasphere@gmail.com',
-  internship_duration_days INT NOT NULL DEFAULT 90,
-  default_stipend_terms TEXT NOT NULL DEFAULT 'Performance-based / Milestone',
-  allow_self_checkin BOOLEAN NOT NULL DEFAULT true,
-  require_review_for_completion BOOLEAN NOT NULL DEFAULT true,
+  default_stipend TEXT NOT NULL DEFAULT 'Stipend: $1,400/month',
   updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
@@ -325,70 +308,36 @@ ALTER TABLE public.certificates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
 
-DO $$ BEGIN
-  -- Profiles
-  DROP POLICY IF EXISTS "ims_profiles_all" ON public.profiles;
-  CREATE POLICY "ims_profiles_all" ON public.profiles FOR ALL USING (true) WITH CHECK (true);
-
-  -- Roles
-  DROP POLICY IF EXISTS "ims_roles_all" ON public.internship_roles;
-  CREATE POLICY "ims_roles_all" ON public.internship_roles FOR ALL USING (true) WITH CHECK (true);
-
-  -- Projects
-  DROP POLICY IF EXISTS "ims_projects_all" ON public.projects;
-  CREATE POLICY "ims_projects_all" ON public.projects FOR ALL USING (true) WITH CHECK (true);
-
-  -- Interns
-  DROP POLICY IF EXISTS "ims_interns_all" ON public.interns;
-  CREATE POLICY "ims_interns_all" ON public.interns FOR ALL USING (true) WITH CHECK (true);
-
-  -- Onboarding
-  DROP POLICY IF EXISTS "ims_onboarding_all" ON public.onboarding_items;
-  CREATE POLICY "ims_onboarding_all" ON public.onboarding_items FOR ALL USING (true) WITH CHECK (true);
-
-  -- Tasks
-  DROP POLICY IF EXISTS "ims_tasks_all" ON public.tasks;
-  CREATE POLICY "ims_tasks_all" ON public.tasks FOR ALL USING (true) WITH CHECK (true);
-
-  -- Calendar Events
-  DROP POLICY IF EXISTS "ims_calendar_all" ON public.calendar_events;
-  CREATE POLICY "ims_calendar_all" ON public.calendar_events FOR ALL USING (true) WITH CHECK (true);
-
-  -- Documents
-  DROP POLICY IF EXISTS "ims_documents_all" ON public.documents;
-  CREATE POLICY "ims_documents_all" ON public.documents FOR ALL USING (true) WITH CHECK (true);
-
-  -- Attendance
-  DROP POLICY IF EXISTS "ims_attendance_all" ON public.attendance_logs;
-  CREATE POLICY "ims_attendance_all" ON public.attendance_logs FOR ALL USING (true) WITH CHECK (true);
-
-  -- Announcements
-  DROP POLICY IF EXISTS "ims_announcements_all" ON public.announcements;
-  CREATE POLICY "ims_announcements_all" ON public.announcements FOR ALL USING (true) WITH CHECK (true);
-
-  -- Reviews
-  DROP POLICY IF EXISTS "ims_reviews_all" ON public.reviews;
-  CREATE POLICY "ims_reviews_all" ON public.reviews FOR ALL USING (true) WITH CHECK (true);
-
-  -- Certificates
-  DROP POLICY IF EXISTS "ims_certificates_all" ON public.certificates;
-  CREATE POLICY "ims_certificates_all" ON public.certificates FOR ALL USING (true) WITH CHECK (true);
-
-  -- Activity Logs
-  DROP POLICY IF EXISTS "ims_activity_logs_all" ON public.activity_logs;
-  CREATE POLICY "ims_activity_logs_all" ON public.activity_logs FOR ALL USING (true) WITH CHECK (true);
-
-  -- System Settings
-  DROP POLICY IF EXISTS "ims_system_settings_all" ON public.system_settings;
-  CREATE POLICY "ims_system_settings_all" ON public.system_settings FOR ALL USING (true) WITH CHECK (true);
-EXCEPTION WHEN others THEN null;
-END $$;
+CREATE POLICY "ims_profiles_all" ON public.profiles FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "ims_roles_all" ON public.internship_roles FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "ims_projects_all" ON public.projects FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "ims_interns_all" ON public.interns FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "ims_onboarding_all" ON public.onboarding_items FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "ims_tasks_all" ON public.tasks FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "ims_calendar_all" ON public.calendar_events FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "ims_documents_all" ON public.documents FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "ims_attendance_all" ON public.attendance_logs FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "ims_announcements_all" ON public.announcements FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "ims_reviews_all" ON public.reviews FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "ims_certificates_all" ON public.certificates FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "ims_activity_logs_all" ON public.activity_logs FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "ims_system_settings_all" ON public.system_settings FOR ALL USING (true) WITH CHECK (true);
 
 -- ==============================================================================
 -- INITIAL SEED DATA
 -- ==============================================================================
 
--- 1. Admin & Coordinator Profiles
+-- 1. Default System Settings
+INSERT INTO public.system_settings (
+  id, company_name, project_name, tagline, default_duration, default_work_arrangement,
+  authorized_signatory_name, authorized_signatory_title, support_email, default_stipend
+) VALUES (
+  'default', 'IntraSphere Labs', 'IntraSphere IMS', 'Next-Gen Internship Management',
+  '3 Months', 'Remote', 'IntraSphere Operations Lead', 'Operations Director',
+  'teamintrasphere@gmail.com', 'Stipend: $1,400/month'
+) ON CONFLICT (id) DO UPDATE SET updated_at = now();
+
+-- 2. Admin & Coordinator Profiles
 INSERT INTO public.profiles (id, email, full_name, role, status)
 VALUES
   ('1aba0833-091a-4d00-979b-976507530e0c', 'teamintrasphere@gmail.com', 'IntraSphere Admin', 'admin', 'active'),
@@ -398,7 +347,7 @@ ON CONFLICT (email) DO UPDATE SET
   role = EXCLUDED.role,
   status = EXCLUDED.status;
 
--- 2. Preconfigured Cohort Roles
+-- 3. Preconfigured Cohort Roles
 INSERT INTO public.internship_roles (id, title, description, responsibilities, required_skills, openings, duration, work_arrangement, compensation_terms, application_instructions, is_active)
 VALUES
   ('role-prod-res', 'Product Research Intern', 'Focuses on identifying user pain points, analyzing market trends, synthesizing competitive intelligence, and validating early product hypotheses.', ARRAY['Conduct user interview synthesis and survey analysis', 'Benchmark competing SaaS platforms and identify feature gaps', 'Translate qualitative research into structured product problem statements', 'Collaborate with engineering leads on feature prioritization briefs'], ARRAY['User Research & Discovery', 'Market Analysis', 'Wireframing & FigJam'], 3, '3 Months', 'Remote', 'Stipend: Performance-based / Milestone', 'Internal record only. Candidates selected through standard vetting by IntraSphere Labs team.', true),
@@ -407,7 +356,7 @@ VALUES
   ('role-prop-acq', 'Property Acquisition Intern', 'Performs real estate market underwriting, site feasibility assessments, municipal zoning research, and asset valuation modeling.', ARRAY['Analyze spatial real estate datasets and property records', 'Perform cash flow modeling and preliminary IRR calculations', 'Examine zoning bylaws and municipal permitting constraints', 'Assemble comprehensive acquisition investment summaries'], ARRAY['Real Estate Financial Modeling', 'Zoning & Feasibility Research', 'Excel & Financial Spreadsheets', 'Asset Valuation Principles'], 2, '3 Months', 'Hybrid', 'Stipend: Performance-based / Milestone', 'Internal record only. Specialized asset analysis cohort.', true)
 ON CONFLICT (title) DO NOTHING;
 
--- 3. Core Project
+-- 4. Core Project
 INSERT INTO public.projects (id, name, description, problem_statement, goals, project_lead_id, lead_name, start_date, target_completion_date, status)
 VALUES
   ('proj-pri-1', 'IntraSphere Labs — Product Research & Innovation', 'Central cross-functional initiative focused on discovering, scoping, and prototyping scalable SaaS solutions for modern digital operations.', 'Organizations struggle with disconnected tools, slow feedback loops, and lack of verified data models during product development and talent scaling.', 'Deliver working prototypes, establish verified market fit criteria, streamline remote check-in workflows, and validate production architectures.', '1aba0833-091a-4d00-979b-976507530e0c', 'IntraSphere Admin', '2026-02-01', '2026-05-01', 'Active')
