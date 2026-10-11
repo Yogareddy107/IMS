@@ -38,7 +38,7 @@ export const UserManagementModule: React.FC = () => {
     deleteUser,
     getProvisionedAccounts,
   } = useAuth();
-  const { interns, roles, projects, addIntern } = useData();
+  const { interns, roles, projects, addIntern, updateIntern } = useData();
 
   const [isProvisionModalOpen, setIsProvisionModalOpen] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -46,11 +46,18 @@ export const UserManagementModule: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('ALL');
 
+  // Coordinators and Admins available for mentorship assignment
+  const coordinators = availableProfiles.filter(
+    (p) => p.role === 'coordinator' || p.role === 'admin'
+  );
+
   const [provisionForm, setProvisionForm] = useState({
     full_name: '',
     email: '',
     phone: '',
     role: 'coordinator' as UserRole,
+    coordinator_id: '',
+    coordinator_name: '',
     send_email: true,
   });
 
@@ -77,11 +84,18 @@ export const UserManagementModule: React.FC = () => {
   }
 
   const handleOpenModal = () => {
+    const defaultCoord =
+      coordinators.find((c) => c.role === 'coordinator') ||
+      coordinators[0] ||
+      currentUser;
+
     setProvisionForm({
       full_name: '',
       email: '',
       phone: '',
       role: 'coordinator',
+      coordinator_id: defaultCoord?.id || '',
+      coordinator_name: defaultCoord?.full_name || '',
       send_email: true,
     });
     setProvisionResult(null);
@@ -115,12 +129,18 @@ export const UserManagementModule: React.FC = () => {
         return;
       }
 
-      // 2. If role is 'intern', ensure intern record exists in DataContext
+      // 2. If role is 'intern', ensure intern record exists in DataContext with assigned coordinator
       if (provisionForm.role === 'intern') {
-        const internExists = interns.some(
+        const existingIntern = interns.find(
           (i) => i.email.toLowerCase() === cleanEmail
         );
-        if (!internExists) {
+        const selectedCoord =
+          coordinators.find((c) => c.id === provisionForm.coordinator_id) ||
+          coordinators.find((c) => c.role === 'coordinator') ||
+          coordinators[0] ||
+          currentUser;
+
+        if (!existingIntern) {
           const selectedRole = roles[0];
           const selectedProject = projects[0];
           addIntern({
@@ -133,16 +153,22 @@ export const UserManagementModule: React.FC = () => {
             planned_end_date: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
               .toISOString()
               .split('T')[0],
-            coordinator_id: currentUser?.id || 'admin',
-            coordinator_name: currentUser?.full_name || 'IntraSphere Admin',
+            coordinator_id: selectedCoord?.id || currentUser?.id || 'admin',
+            coordinator_name: selectedCoord?.full_name || currentUser?.full_name || 'IntraSphere Admin',
             status: 'Active',
             assigned_project_id: selectedProject?.id || null,
             assigned_project_name: selectedProject?.name || null,
             skills: ['Research', 'Collaboration'],
             learning_goals: 'Complete cohort onboarding and sprint deliverables.',
-            progress_notes: 'Account provisioned by Administrator.',
+            progress_notes: `Account provisioned by Administrator. Assigned Mentor: ${selectedCoord?.full_name || 'Coordinator'}.`,
             certificate_status: 'Not Eligible',
             is_archived: false,
+          });
+        } else {
+          // If intern already exists, update their coordinator to the selected coordinator
+          updateIntern(existingIntern.id, {
+            coordinator_id: selectedCoord?.id || currentUser?.id || 'admin',
+            coordinator_name: selectedCoord?.full_name || currentUser?.full_name || 'IntraSphere Admin',
           });
         }
       }
@@ -244,19 +270,19 @@ export const UserManagementModule: React.FC = () => {
           <div className="p-2.5 bg-white border border-[#E5E7EB] rounded-md space-y-1">
             <div className="font-semibold text-black">1. Admin Provisions Account</div>
             <p>
-              Admin enters the person’s Name, Email, Role, and sets or auto-generates a password.
+              Admin enters Name, Email, Role, and assigns an Internship Coordinator / Mentor for interns.
             </p>
           </div>
           <div className="p-2.5 bg-white border border-[#E5E7EB] rounded-md space-y-1">
             <div className="font-semibold text-black">2. Invitation Dispatched</div>
             <p>
-              An automated email is sent to their inbox with their login credentials and direct portal link.
+              An automated invitation email is sent to their inbox with their direct portal access link.
             </p>
           </div>
           <div className="p-2.5 bg-white border border-[#E5E7EB] rounded-md space-y-1">
             <div className="font-semibold text-black">3. Immediate Access</div>
             <p>
-              The user opens the sign-in page, types their email and password, and enters their dedicated workspace.
+              The user enters their authorized email address on the sign-in page to access their dedicated workspace.
             </p>
           </div>
         </div>
@@ -430,6 +456,16 @@ export const UserManagementModule: React.FC = () => {
                     <span className="text-[#6B7280]">Role:</span>
                     <Badge variant="dark">{provisionResult.account.role.toUpperCase()}</Badge>
                   </div>
+                  {provisionResult.account.role === 'intern' && (
+                    <div className="flex justify-between items-center py-0.5 border-b border-neutral-100">
+                      <span className="text-[#6B7280]">Assigned Coordinator:</span>
+                      <strong className="text-black">
+                        {coordinators.find((c) => c.id === provisionForm.coordinator_id)?.full_name ||
+                          provisionForm.coordinator_name ||
+                          'Assigned Coordinator'}
+                      </strong>
+                    </div>
+                  )}
                   <div className="flex justify-between items-center py-0.5">
                     <span className="text-[#6B7280]">Sign-In Method:</span>
                     <strong className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
@@ -562,12 +598,21 @@ export const UserManagementModule: React.FC = () => {
                 </label>
                 <select
                   value={provisionForm.role}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const newRole = e.target.value as UserRole;
+                    const defaultCoord =
+                      coordinators.find((c) => c.role === 'coordinator') ||
+                      coordinators[0] ||
+                      currentUser;
                     setProvisionForm({
                       ...provisionForm,
-                      role: e.target.value as UserRole,
-                    })
-                  }
+                      role: newRole,
+                      coordinator_id:
+                        provisionForm.coordinator_id || defaultCoord?.id || '',
+                      coordinator_name:
+                        provisionForm.coordinator_name || defaultCoord?.full_name || '',
+                    });
+                  }}
                   className="w-full px-3 py-2 bg-neutral-50 border border-[#E5E7EB] rounded-md focus:outline-none focus:border-black font-medium"
                 >
                   <option value="coordinator">Internship Coordinator</option>
@@ -583,6 +628,40 @@ export const UserManagementModule: React.FC = () => {
                     'Administrators possess full platform and organization management rights.'}
                 </p>
               </div>
+
+              {provisionForm.role === 'intern' && (
+                <div>
+                  <label className="block font-semibold text-neutral-800 mb-1">
+                    Assign Coordinator / Mentor <span className="text-black">*</span>
+                  </label>
+                  <select
+                    value={
+                      provisionForm.coordinator_id ||
+                      coordinators.find((c) => c.role === 'coordinator')?.id ||
+                      coordinators[0]?.id ||
+                      ''
+                    }
+                    onChange={(e) => {
+                      const selected = coordinators.find((c) => c.id === e.target.value);
+                      setProvisionForm({
+                        ...provisionForm,
+                        coordinator_id: e.target.value,
+                        coordinator_name: selected?.full_name || '',
+                      });
+                    }}
+                    className="w-full px-3 py-2 bg-neutral-50 border border-[#E5E7EB] rounded-md focus:outline-none focus:border-black font-medium"
+                  >
+                    {coordinators.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.full_name} ({c.email}) {c.role === 'admin' ? '[Admin]' : '[Coordinator]'}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-[#6B7280] mt-1">
+                    Select which Coordinator will oversee this intern&apos;s check-ins, tasks, documents, and attendance.
+                  </p>
+                </div>
+              )}
 
               <div className="p-3 bg-neutral-50 rounded border border-[#E5E7EB]">
                 <label className="flex items-start gap-2 cursor-pointer">

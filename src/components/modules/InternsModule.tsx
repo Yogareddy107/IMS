@@ -29,7 +29,7 @@ import { Modal } from '@/components/common/Modal';
 import { EmptyState } from '@/components/common/EmptyState';
 
 export const InternsModule: React.FC = () => {
-  const { currentRole, currentUser } = useAuth();
+  const { currentRole, currentUser, availableProfiles } = useAuth();
   const {
     interns,
     filteredInterns,
@@ -42,6 +42,11 @@ export const InternsModule: React.FC = () => {
     updateIntern,
     archiveIntern,
   } = useData();
+
+  // Coordinators and Staff available for mentorship assignment
+  const coordinators = availableProfiles.filter(
+    (p) => p.role === 'coordinator' || p.role === 'admin'
+  );
 
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState('');
@@ -62,8 +67,16 @@ export const InternsModule: React.FC = () => {
     role_title: roles[0]?.title || '',
     start_date: new Date().toISOString().split('T')[0],
     planned_end_date: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    coordinator_id: currentUser?.id || 'admin',
-    coordinator_name: currentUser?.full_name || 'IntraSphere Admin',
+    coordinator_id:
+      coordinators.find((c) => c.role === 'coordinator')?.id ||
+      coordinators[0]?.id ||
+      currentUser?.id ||
+      'admin',
+    coordinator_name:
+      coordinators.find((c) => c.role === 'coordinator')?.full_name ||
+      coordinators[0]?.full_name ||
+      currentUser?.full_name ||
+      'IntraSphere Admin',
     status: 'Selected' as InternshipStatus,
     assigned_project_id: projects[0]?.id || '',
     assigned_project_name: projects[0]?.name || '',
@@ -188,6 +201,11 @@ export const InternsModule: React.FC = () => {
   };
 
   const resetForm = () => {
+    const defaultCoord =
+      coordinators.find((c) => c.role === 'coordinator') ||
+      coordinators[0] ||
+      currentUser;
+
     setFormData({
       full_name: '',
       email: '',
@@ -196,8 +214,8 @@ export const InternsModule: React.FC = () => {
       role_title: roles[0]?.title || '',
       start_date: new Date().toISOString().split('T')[0],
       planned_end_date: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      coordinator_id: currentUser?.id || 'admin',
-      coordinator_name: currentUser?.full_name || 'IntraSphere Admin',
+      coordinator_id: defaultCoord?.id || 'admin',
+      coordinator_name: defaultCoord?.full_name || 'IntraSphere Admin',
       status: 'Selected',
       assigned_project_id: projects[0]?.id || '',
       assigned_project_name: projects[0]?.name || '',
@@ -535,10 +553,24 @@ export const InternsModule: React.FC = () => {
               )}
             </div>
 
-            <div className="pt-3 border-t border-[#E5E7EB] flex justify-end">
+            <div className="pt-3 border-t border-[#E5E7EB] flex justify-end gap-2">
               <Button variant="secondary" size="sm" onClick={() => setSelectedIntern(null)}>
                 Close
               </Button>
+              {currentRole === 'admin' && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  icon={<Edit2 className="w-3.5 h-3.5" />}
+                  onClick={() => {
+                    const targetIntern = selectedIntern;
+                    setSelectedIntern(null);
+                    openEditModal(targetIntern);
+                  }}
+                >
+                  Edit / Reassign Coordinator
+                </Button>
+              )}
             </div>
           </div>
         </Modal>
@@ -656,19 +688,26 @@ export const InternsModule: React.FC = () => {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block font-medium text-neutral-800 mb-1">Internship Status</label>
+                <label className="block font-medium text-neutral-800 mb-1">
+                  Assigned Coordinator / Mentor <span className="text-black">*</span>
+                </label>
                 <select
-                  value={formData.status}
-                  onChange={(e) => setFormData({ ...formData, status: e.target.value as InternshipStatus })}
-                  className="w-full px-3 py-1.5 bg-neutral-50 border border-[#E5E7EB] rounded-md focus:outline-none focus:ring-1 focus:ring-black"
+                  value={formData.coordinator_id}
+                  onChange={(e) => {
+                    const selected = coordinators.find((c) => c.id === e.target.value);
+                    setFormData({
+                      ...formData,
+                      coordinator_id: e.target.value,
+                      coordinator_name: selected?.full_name || '',
+                    });
+                  }}
+                  className="w-full px-3 py-1.5 bg-neutral-50 border border-[#E5E7EB] rounded-md focus:outline-none focus:ring-1 focus:ring-black font-medium"
                 >
-                  <option value="Selected">Selected</option>
-                  <option value="Offer Sent">Offer Sent</option>
-                  <option value="Onboarding">Onboarding</option>
-                  <option value="Active">Active</option>
-                  <option value="Paused">Paused</option>
-                  <option value="Completed">Completed</option>
-                  <option value="Discontinued">Discontinued</option>
+                  {coordinators.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.full_name} ({c.email}) {c.role === 'admin' ? '[Admin]' : '[Coordinator]'}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -689,17 +728,36 @@ export const InternsModule: React.FC = () => {
               </div>
             </div>
 
-            <div>
-              <label className="block font-medium text-neutral-800 mb-1">
-                Skills (comma-separated)
-              </label>
-              <input
-                type="text"
-                value={formData.skills}
-                onChange={(e) => setFormData({ ...formData, skills: e.target.value })}
-                placeholder="e.g. Next.js, TypeScript, PostgreSQL"
-                className="w-full px-3 py-1.5 bg-neutral-50 border border-[#E5E7EB] rounded-md focus:outline-none focus:ring-1 focus:ring-black"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block font-medium text-neutral-800 mb-1">Internship Status</label>
+                <select
+                  value={formData.status}
+                  onChange={(e) => setFormData({ ...formData, status: e.target.value as InternshipStatus })}
+                  className="w-full px-3 py-1.5 bg-neutral-50 border border-[#E5E7EB] rounded-md focus:outline-none focus:ring-1 focus:ring-black"
+                >
+                  <option value="Selected">Selected</option>
+                  <option value="Offer Sent">Offer Sent</option>
+                  <option value="Onboarding">Onboarding</option>
+                  <option value="Active">Active</option>
+                  <option value="Paused">Paused</option>
+                  <option value="Completed">Completed</option>
+                  <option value="Discontinued">Discontinued</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-medium text-neutral-800 mb-1">
+                  Skills (comma-separated)
+                </label>
+                <input
+                  type="text"
+                  value={formData.skills}
+                  onChange={(e) => setFormData({ ...formData, skills: e.target.value })}
+                  placeholder="e.g. Next.js, TypeScript, PostgreSQL"
+                  className="w-full px-3 py-1.5 bg-neutral-50 border border-[#E5E7EB] rounded-md focus:outline-none focus:ring-1 focus:ring-black"
+                />
+              </div>
             </div>
 
             <div>
