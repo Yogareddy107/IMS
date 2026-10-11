@@ -34,13 +34,16 @@ export const SettingsModule: React.FC = () => {
   const { settings, updateSettings, resetDemoData } = useData();
 
   const [formState, setFormState] = useState({
-    company_name: settings.company_name,
-    project_name: settings.project_name,
-    tagline: settings.tagline,
-    default_duration: settings.default_duration,
-    default_work_arrangement: settings.default_work_arrangement,
-    authorized_signatory_name: settings.authorized_signatory_name,
-    authorized_signatory_title: settings.authorized_signatory_title,
+    company_name: settings.company_name || 'IntraSphere Labs',
+    project_name: settings.project_name || 'IMS',
+    tagline: settings.tagline || 'Building Real-World Products Through Innovation',
+    default_duration: settings.default_duration || '3 Months (Quarterly Cohort)',
+    default_work_arrangement: settings.default_work_arrangement || 'Remote',
+    authorized_signatory_name: settings.authorized_signatory_name || 'IntraSphere Admin',
+    authorized_signatory_title: settings.authorized_signatory_title || 'Operations Lead',
+    default_stipend: settings.default_stipend || 'Stipend: $1,400/month',
+    contact_email: settings.contact_email || 'hr@intraspherelabs.com',
+    company_address: settings.company_address || 'Headquarters: Innovation District',
   });
 
   const [savedSuccess, setSavedSuccess] = useState(false);
@@ -48,6 +51,22 @@ export const SettingsModule: React.FC = () => {
   const [testSent, setTestSent] = useState(false);
   const [emailTesting, setEmailTesting] = useState(false);
   const [emailResult, setEmailResult] = useState<string | null>(null);
+
+  // Sync form state when settings load or update
+  useEffect(() => {
+    setFormState({
+      company_name: settings.company_name || 'IntraSphere Labs',
+      project_name: settings.project_name || 'IMS',
+      tagline: settings.tagline || 'Building Real-World Products Through Innovation',
+      default_duration: settings.default_duration || '3 Months (Quarterly Cohort)',
+      default_work_arrangement: settings.default_work_arrangement || 'Remote',
+      authorized_signatory_name: settings.authorized_signatory_name || 'IntraSphere Admin',
+      authorized_signatory_title: settings.authorized_signatory_title || 'Operations Lead',
+      default_stipend: settings.default_stipend || 'Stipend: $1,400/month',
+      contact_email: settings.contact_email || 'hr@intraspherelabs.com',
+      company_address: settings.company_address || 'Headquarters: Innovation District',
+    });
+  }, [settings]);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -59,7 +78,7 @@ export const SettingsModule: React.FC = () => {
     e.preventDefault();
     updateSettings(formState);
     setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 2500);
+    setTimeout(() => setSavedSuccess(false), 3500);
   };
 
   const handleEnableDesktop = async () => {
@@ -313,12 +332,29 @@ export const SettingsModule: React.FC = () => {
       {/* Brand Identity / Personal Notification Profile Card */}
       {currentRole === 'admin' ? (
         <form onSubmit={handleSave} className="p-5 bg-white border border-[#E5E7EB] rounded-lg shadow-xs space-y-5 text-xs">
-          <div className="border-b border-[#E5E7EB] pb-3">
-            <h3 className="font-bold text-sm text-[#111111]">Brand Identity & Organization Defaults</h3>
-            <p className="text-xs text-[#6B7280] mt-0.5">
-              Configured text-based identity and authorized letterhead signatories.
-            </p>
+          <div className="border-b border-[#E5E7EB] pb-3 flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-sm text-[#111111]">Brand Identity &amp; Organization Defaults</h3>
+              <p className="text-xs text-[#6B7280] mt-0.5">
+                Configured text-based identity, letterhead signatories, and default offer letter compensation terms.
+              </p>
+            </div>
+            {savedSuccess && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium text-xs">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                Saved &amp; Active
+              </span>
+            )}
           </div>
+
+          {savedSuccess && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-md text-emerald-800 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>
+                <strong>Configuration saved successfully!</strong> All brand defaults, letterheads, and default offer letter compensation terms have been updated.
+              </span>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -344,18 +380,31 @@ export const SettingsModule: React.FC = () => {
             </div>
           </div>
 
-          <div>
-            <label className="block font-medium text-neutral-800 mb-1">Official Tagline</label>
-            <input
-              type="text"
-              required
-              value={formState.tagline}
-              onChange={(e) => setFormState({ ...formState, tagline: e.target.value })}
-              className="w-full px-3 py-1.5 bg-neutral-50 border border-[#E5E7EB] rounded-md focus:outline-none focus:ring-1 focus:ring-black"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block font-medium text-neutral-800 mb-1">Official Tagline</label>
+              <input
+                type="text"
+                required
+                value={formState.tagline}
+                onChange={(e) => setFormState({ ...formState, tagline: e.target.value })}
+                className="w-full px-3 py-1.5 bg-neutral-50 border border-[#E5E7EB] rounded-md focus:outline-none focus:ring-1 focus:ring-black"
+              />
+            </div>
+
+            <div>
+              <label className="block font-medium text-neutral-800 mb-1">Official Contact Email</label>
+              <input
+                type="email"
+                required
+                value={formState.contact_email}
+                onChange={(e) => setFormState({ ...formState, contact_email: e.target.value })}
+                className="w-full px-3 py-1.5 bg-neutral-50 border border-[#E5E7EB] rounded-md focus:outline-none focus:ring-1 focus:ring-black"
+              />
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="block font-medium text-neutral-800 mb-1">Default Duration</label>
               <input
@@ -384,6 +433,28 @@ export const SettingsModule: React.FC = () => {
                 <option value="In-office">In-office</option>
               </select>
             </div>
+
+            <div>
+              <label className="block font-medium text-neutral-800 mb-1">Default Stipend / Salary Terms</label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Stipend: $1,400/month or ₹25,000/month"
+                value={formState.default_stipend}
+                onChange={(e) => setFormState({ ...formState, default_stipend: e.target.value })}
+                className="w-full px-3 py-1.5 bg-neutral-50 border border-[#E5E7EB] rounded-md focus:outline-none focus:ring-1 focus:ring-black"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-medium text-neutral-800 mb-1">Headquarters / Office Address</label>
+            <input
+              type="text"
+              value={formState.company_address}
+              onChange={(e) => setFormState({ ...formState, company_address: e.target.value })}
+              className="w-full px-3 py-1.5 bg-neutral-50 border border-[#E5E7EB] rounded-md focus:outline-none focus:ring-1 focus:ring-black"
+            />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-[#E5E7EB]">
@@ -416,14 +487,25 @@ export const SettingsModule: React.FC = () => {
             </div>
           </div>
 
-          <div className="pt-3 border-t border-[#E5E7EB] flex justify-end">
+          <div className="pt-3 border-t border-[#E5E7EB] flex items-center justify-between">
+            <div className="text-[11px] text-neutral-500">
+              {savedSuccess ? (
+                <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  All parameters successfully saved and synchronized.
+                </span>
+              ) : (
+                'Changes take effect immediately across all documents and platform modules.'
+              )}
+            </div>
+
             <Button
               type="submit"
               variant="primary"
               size="sm"
-              icon={<Save className="w-3.5 h-3.5" />}
+              icon={savedSuccess ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> : <Save className="w-3.5 h-3.5" />}
             >
-              Save Configuration
+              {savedSuccess ? 'Configuration Saved!' : 'Save Configuration'}
             </Button>
           </div>
         </form>

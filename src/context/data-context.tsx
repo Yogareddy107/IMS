@@ -64,6 +64,7 @@ interface DataContextType {
   createProject: (project: Omit<Project, 'id' | 'created_at'>) => void;
   updateProject: (projectId: string, updates: Partial<Project>) => void;
   createDocument: (doc: Omit<IMSDocument, 'id' | 'created_at'>) => void;
+  updateDocument: (docId: string, updates: Partial<IMSDocument>) => void;
   approveOfferLetter: (docId: string) => void;
   issueOfferLetter: (docId: string) => void;
   submitCheckin: (checkin: Omit<CheckInLog, 'id' | 'created_at'>) => void;
@@ -283,12 +284,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         intern_email: createdIntern.email,
         role_title: createdIntern.role_title,
         start_date: createdIntern.start_date,
-        duration: '3 Months',
-        work_arrangement: 'Remote',
-        compensation_terms: 'Stipend: $1,400/month',
+        duration: settings.default_duration || '3 Months',
+        work_arrangement: settings.default_work_arrangement || 'Remote',
+        compensation_terms: settings.default_stipend || 'Stipend: $1,400/month',
         responsibilities: [
           'Fulfill designated cohort project deliverables and sprint requirements.',
           'Submit regular check-ins and participate in weekly milestone reviews.',
+          'Collaborate effectively with team members, mentors, and project coordinators.',
         ],
         signatory_name: settings.authorized_signatory_name,
         signatory_title: settings.authorized_signatory_title,
@@ -455,6 +457,49 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     };
     setDocuments((prev) => [newDoc, ...prev]);
     logActivity('Added Document', 'Documents', `Document: ${newDoc.title}`);
+  };
+
+  const updateDocument = (docId: string, updates: Partial<IMSDocument>) => {
+    setDocuments((prev) => {
+      const next = prev.map((d) => {
+        if (d.id === docId) {
+          return {
+            ...d,
+            ...updates,
+            offer_details: updates.offer_details
+              ? {
+                  ...(d.offer_details || {
+                    intern_name: d.intern_name || '',
+                    intern_email: '',
+                    role_title: '',
+                    start_date: new Date().toISOString().split('T')[0],
+                    duration: settings.default_duration || '3 Months',
+                    work_arrangement: settings.default_work_arrangement || 'Remote',
+                    compensation_terms: settings.default_stipend || 'Stipend: $1,400/month',
+                    responsibilities: [],
+                    signatory_name: settings.authorized_signatory_name || 'IntraSphere Admin',
+                    signatory_title: settings.authorized_signatory_title || 'Operations Lead',
+                    issue_date: new Date().toISOString().split('T')[0],
+                    is_approved: false,
+                    is_issued: false,
+                  }),
+                  ...updates.offer_details,
+                }
+              : d.offer_details,
+          };
+        }
+        return d;
+      });
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(STORAGE_PREFIX + 'documents', JSON.stringify(next));
+        } catch (e) {
+          console.warn('Documents immediate save notice:', e);
+        }
+      }
+      return next;
+    });
+    logActivity('Updated Document', 'Documents', `Document terms updated: ${docId}`);
   };
 
   const approveOfferLetter = (docId: string) => {
@@ -650,8 +695,18 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateSettings = (newSettings: Partial<SystemSettings>) => {
-    setSettings((prev) => ({ ...prev, ...newSettings }));
-    logActivity('Updated System Settings', 'Settings', 'Configured system parameters');
+    setSettings((prev) => {
+      const merged = { ...prev, ...newSettings };
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(STORAGE_PREFIX + 'settings', JSON.stringify(merged));
+        } catch (e) {
+          console.warn('Settings direct save notice:', e);
+        }
+      }
+      return merged;
+    });
+    logActivity('Updated System Settings', 'Settings', 'Configured brand identity and platform parameters');
   };
 
   const resetDemoData = () => {
@@ -837,6 +892,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         createProject,
         updateProject,
         createDocument,
+        updateDocument,
         approveOfferLetter,
         issueOfferLetter,
         submitCheckin,

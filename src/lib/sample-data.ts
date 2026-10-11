@@ -24,6 +24,9 @@ export const INITIAL_SETTINGS: SystemSettings = {
   authorized_signatory_name: 'IntraSphere Admin',
   authorized_signatory_title: 'Operations & Platform Lead',
   is_demo_mode: false,
+  contact_email: 'hr@intraspherelabs.com',
+  company_address: 'Headquarters: Innovation District',
+  default_stipend: 'Stipend: $1,400/month',
 };
 
 export const INITIAL_PROFILES: UserProfile[] = [

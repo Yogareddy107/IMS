@@ -300,4 +300,7 @@ export interface SystemSettings {
   authorized_signatory_name: string;
   authorized_signatory_title: string;
   is_demo_mode: boolean;
+  contact_email?: string;
+  company_address?: string;
+  default_stipend?: string;
 }
