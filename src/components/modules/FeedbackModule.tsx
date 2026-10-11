@@ -122,7 +122,7 @@ export const FeedbackModule: React.FC = () => {
         />
       ) : (
         <div className="space-y-4">
-          {filteredReviews.map((rev) => (
+          {filteredReviews.map((rev: PerformanceReview) => (
             <div
               key={rev.id}
               className="p-5 bg-white border border-[#E5E7EB] rounded-lg shadow-xs space-y-4 hover:border-neutral-400 transition-colors"

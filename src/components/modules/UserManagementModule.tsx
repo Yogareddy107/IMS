@@ -41,25 +41,21 @@ export const UserManagementModule: React.FC = () => {
   const { interns, roles, projects, addIntern } = useData();
 
   const [isProvisionModalOpen, setIsProvisionModalOpen] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('ALL');
 
-  const generatePassword = () => `ISL@${Math.floor(1000 + Math.random() * 9000)}`;
-
   const [provisionForm, setProvisionForm] = useState({
     full_name: '',
     email: '',
+    phone: '',
     role: 'coordinator' as UserRole,
-    password: generatePassword(),
     send_email: true,
   });
 
   const [provisionResult, setProvisionResult] = useState<{
     account: UserProfile;
-    tempPassword: string;
     emailDispatched: boolean;
     emailMessage?: string;
     isSandboxForwarded?: boolean;
@@ -84,12 +80,11 @@ export const UserManagementModule: React.FC = () => {
     setProvisionForm({
       full_name: '',
       email: '',
+      phone: '',
       role: 'coordinator',
-      password: generatePassword(),
       send_email: true,
     });
     setProvisionResult(null);
-    setShowPassword(false);
     setIsProvisionModalOpen(true);
   };
 
@@ -105,14 +100,13 @@ export const UserManagementModule: React.FC = () => {
 
     try {
       const cleanEmail = provisionForm.email.trim().toLowerCase();
-      const finalPassword = provisionForm.password.trim() || generatePassword();
 
-      // 1. Provision user in auth context
+      // 1. Provision user in auth context (Direct Supabase persist)
       const res = await provisionUser({
         full_name: provisionForm.full_name.trim(),
         email: cleanEmail,
         role: provisionForm.role,
-        password: finalPassword,
+        phone: provisionForm.phone.trim(),
       });
 
       if (!res.success || !res.account) {
@@ -132,7 +126,7 @@ export const UserManagementModule: React.FC = () => {
           addIntern({
             full_name: provisionForm.full_name.trim(),
             email: cleanEmail,
-            phone: '',
+            phone: provisionForm.phone.trim(),
             internship_role_id: selectedRole?.id || 'role-prod-res',
             role_title: selectedRole?.title || 'Product Research Intern',
             start_date: new Date().toISOString().split('T')[0],
@@ -153,7 +147,7 @@ export const UserManagementModule: React.FC = () => {
         }
       }
 
-      // 3. Dispatch Invitation Email if requested
+      // 3. Dispatch Invitation Email if requested (Passwordless)
       let emailDispatched = false;
       let emailMessage = '';
       let isSandboxForwarded = false;
@@ -174,8 +168,8 @@ export const UserManagementModule: React.FC = () => {
             recipientEmail: cleanEmail,
             recipientName: provisionForm.full_name.trim(),
             senderName: currentUser?.full_name || 'IntraSphere Admin',
-            title: `Your IntraSphere IMS ${roleTitle} Account Credentials`,
-            body: `Welcome to IntraSphere Labs Internship Management System.\n\nYour account has been provisioned with the following credentials:\n\nRole: ${roleTitle}\nEmail: ${cleanEmail}\nPassword: ${finalPassword}\nPortal Link: ${loginUrl}\n\nPlease sign in to access your portal, onboarding roadmap, and tasks.`,
+            title: `Your IntraSphere IMS ${roleTitle} Portal Authorization`,
+            body: `Welcome to IntraSphere Labs Internship Management System.\n\nYour account has been authorized with the following details:\n\nRole: ${roleTitle}\nAuthorized Email: ${cleanEmail}\nSign-In Link: ${loginUrl}\n\nPlease click the link above and sign in directly using your email address. No password is required.`,
             actionUrl: loginUrl,
             type: 'general',
           });
@@ -194,7 +188,6 @@ export const UserManagementModule: React.FC = () => {
 
       setProvisionResult({
         account: res.account,
-        tempPassword: finalPassword,
         emailDispatched,
         emailMessage,
         isSandboxForwarded,
@@ -208,13 +201,6 @@ export const UserManagementModule: React.FC = () => {
       setIsSubmitting(false);
     }
   };
-
-  // Map provisioned accounts to their passwords for quick reference
-  const provisionedAccounts = getProvisionedAccounts();
-  const passwordMap = new Map<string, string>();
-  provisionedAccounts.forEach((p) => {
-    if (p.password) passwordMap.set(p.email.toLowerCase(), p.password);
-  });
 
   // Filter profiles
   const displayProfiles = availableProfiles.filter((prof) => {
@@ -318,7 +304,6 @@ export const UserManagementModule: React.FC = () => {
           </thead>
           <tbody className="divide-y divide-[#E5E7EB]">
             {displayProfiles.map((user) => {
-              const userPass = passwordMap.get(user.email.toLowerCase());
               const isPrimaryAdmin = user.email.toLowerCase() === 'teamintrasphere@gmail.com';
 
               return (
@@ -358,31 +343,28 @@ export const UserManagementModule: React.FC = () => {
                   </td>
                   <td className="p-3.5 text-right">
                     <div className="inline-flex items-center gap-1.5 justify-end">
-                      {userPass && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleCopy(
-                              `Email: ${user.email}\nPassword: ${userPass}`,
-                              `copy-${user.id}`
-                            )
-                          }
-                          className="px-2 py-1 text-[11px] rounded bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-medium inline-flex items-center gap-1 transition-colors cursor-pointer"
-                          title="Copy login email and password"
-                        >
-                          {copiedKey === `copy-${user.id}` ? (
-                            <>
-                              <Check className="w-3 h-3 text-emerald-600" />
-                              <span>Copied</span>
-                            </>
-                          ) : (
-                            <>
-                              <Key className="w-3 h-3 text-neutral-600" />
-                              <span>Copy Credentials</span>
-                            </>
-                          )}
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const origin = typeof window !== 'undefined' ? window.location.origin : '';
+                          const link = `${origin}/?login=true&email=${encodeURIComponent(user.email)}`;
+                          handleCopy(link, `copy-${user.id}`);
+                        }}
+                        className="px-2 py-1 text-[11px] rounded bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-medium inline-flex items-center gap-1 transition-colors cursor-pointer"
+                        title="Copy direct portal sign-in link"
+                      >
+                        {copiedKey === `copy-${user.id}` ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-600" />
+                            <span>Link Copied</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3 text-neutral-600" />
+                            <span>Copy Login Link</span>
+                          </>
+                        )}
+                      </button>
 
                       {!isPrimaryAdmin && (
                         <button
@@ -412,11 +394,11 @@ export const UserManagementModule: React.FC = () => {
         <Modal
           isOpen={isProvisionModalOpen}
           onClose={() => setIsProvisionModalOpen(false)}
-          title={provisionResult ? 'Account Provisioned' : 'Provision User Account'}
+          title={provisionResult ? 'Account Authorized' : 'Provision User Account'}
           description={
             provisionResult
-              ? 'Authorized login credentials have been created and activated.'
-              : 'Grant internship coordinator or intern credentials with direct sign-in access.'
+              ? 'Authorized login access has been created and synced with Supabase.'
+              : 'Grant passwordless portal access for an Internship Coordinator or Intern.'
           }
           maxWidth="md"
         >
@@ -427,10 +409,10 @@ export const UserManagementModule: React.FC = () => {
                   <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                   <div>
                     <h4 className="font-bold text-sm text-[#111111]">
-                      Account Created & Activated
+                      Account Authorized in Supabase
                     </h4>
                     <p className="text-[11px] text-[#6B7280]">
-                      The user can immediately log in on the sign-in page.
+                      The user can immediately sign in using their email address.
                     </p>
                   </div>
                 </div>
@@ -441,7 +423,7 @@ export const UserManagementModule: React.FC = () => {
                     <strong className="text-black">{provisionResult.account.full_name}</strong>
                   </div>
                   <div className="flex justify-between items-center py-0.5 border-b border-neutral-100">
-                    <span className="text-[#6B7280]">Email:</span>
+                    <span className="text-[#6B7280]">Authorized Email:</span>
                     <strong className="text-black">{provisionResult.account.email}</strong>
                   </div>
                   <div className="flex justify-between items-center py-0.5 border-b border-neutral-100">
@@ -449,9 +431,9 @@ export const UserManagementModule: React.FC = () => {
                     <Badge variant="dark">{provisionResult.account.role.toUpperCase()}</Badge>
                   </div>
                   <div className="flex justify-between items-center py-0.5">
-                    <span className="text-[#6B7280]">Temporary Password:</span>
-                    <strong className="text-black font-mono bg-neutral-100 px-1.5 py-0.5 rounded">
-                      {provisionResult.tempPassword}
+                    <span className="text-[#6B7280]">Sign-In Method:</span>
+                    <strong className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                      Direct Email Login (Passwordless)
                     </strong>
                   </div>
                 </div>
@@ -463,19 +445,7 @@ export const UserManagementModule: React.FC = () => {
                       <span>Invitation Routed to Admin Email (Resend Sandbox Mode)</span>
                     </div>
                     <p className="text-amber-800 leading-relaxed">
-                      Resend&apos;s testing domain (<code>onboarding@resend.dev</code>) restricts delivery to your registered admin inbox (<strong>teamintrasphere@gmail.com</strong>).
-                    </p>
-                    <p className="text-amber-800 leading-relaxed">
-                      To send directly to personal intern inboxes, add and verify your custom domain at{' '}
-                      <a
-                        href="https://resend.com/domains"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="underline font-bold text-amber-950 hover:text-black inline-flex items-center gap-0.5"
-                      >
-                        resend.com/domains <ExternalLink className="w-2.5 h-2.5" />
-                      </a>
-                      .
+                      Resend&apos;s testing domain (<code>onboarding@resend.dev</code>) delivers to registered admin inbox (<strong>teamintrasphere@gmail.com</strong>).
                     </p>
                   </div>
                 ) : provisionResult.emailDispatched ? (
@@ -486,7 +456,7 @@ export const UserManagementModule: React.FC = () => {
                 ) : (
                   <div className="p-2.5 rounded bg-neutral-100 border border-neutral-200 text-neutral-700 text-[11px] flex items-center gap-1.5">
                     <Mail className="w-3.5 h-3.5 text-neutral-600" />
-                    <span>Credentials saved in database. Share these details with the user.</span>
+                    <span>Account saved in Supabase database. Share the portal link with the user.</span>
                   </div>
                 )}
               </div>
@@ -494,9 +464,9 @@ export const UserManagementModule: React.FC = () => {
               <div className="pt-2 flex flex-wrap items-center justify-between gap-2">
                 <a
                   href={`mailto:${provisionResult.account.email}?subject=${encodeURIComponent(
-                    `Your IntraSphere IMS Login Credentials (${provisionResult.account.role.toUpperCase()})`
+                    `Your IntraSphere IMS Access Link (${provisionResult.account.role.toUpperCase()})`
                   )}&body=${encodeURIComponent(
-                    `Hello ${provisionResult.account.full_name},\n\nYour IntraSphere IMS account has been provisioned.\n\nLogin URL: ${provisionResult.loginUrl || (typeof window !== 'undefined' ? window.location.origin : '')}\nEmail: ${provisionResult.account.email}\nTemporary Password: ${provisionResult.tempPassword}\n\nPlease sign in to access your portal, onboarding checklist, and assigned tasks.\n\nBest regards,\nIntraSphere Labs Team`
+                    `Hello ${provisionResult.account.full_name},\n\nYour IntraSphere IMS account has been authorized.\n\nSign-In Link: ${provisionResult.loginUrl || (typeof window !== 'undefined' ? `${window.location.origin}/?login=true&email=${encodeURIComponent(provisionResult.account.email)}` : '')}\nAuthorized Email: ${provisionResult.account.email}\n\nYou can sign in directly by clicking the link above or entering your email on the IMS portal. No password is required.\n\nBest regards,\nIntraSphere Labs Team`
                   )}`}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold bg-neutral-100 hover:bg-neutral-200 text-neutral-800 border border-neutral-300"
                 >
@@ -516,14 +486,15 @@ export const UserManagementModule: React.FC = () => {
                         <Copy className="w-3.5 h-3.5" />
                       )
                     }
-                    onClick={() =>
+                    onClick={() => {
+                      const link = provisionResult.loginUrl || (typeof window !== 'undefined' ? `${window.location.origin}/?login=true&email=${encodeURIComponent(provisionResult.account.email)}` : '');
                       handleCopy(
-                        `IntraSphere IMS Login Credentials:\nName: ${provisionResult.account.full_name}\nRole: ${provisionResult.account.role.toUpperCase()}\nEmail: ${provisionResult.account.email}\nPassword: ${provisionResult.tempPassword}\nPortal Link: ${provisionResult.loginUrl || (typeof window !== 'undefined' ? `${window.location.origin}/?login=true&email=${encodeURIComponent(provisionResult.account.email)}` : '')}`,
+                        `IntraSphere IMS Portal Access:\nName: ${provisionResult.account.full_name}\nRole: ${provisionResult.account.role.toUpperCase()}\nAuthorized Email: ${provisionResult.account.email}\nLogin Link: ${link}\n(Sign in directly with your email - no password required)`,
                         'modal-copy'
-                      )
-                    }
+                      );
+                    }}
                   >
-                    {copiedKey === 'modal-copy' ? 'Copied to Clipboard' : 'Copy Credentials'}
+                    {copiedKey === 'modal-copy' ? 'Copied to Clipboard' : 'Copy Login Link'}
                   </Button>
                   <Button
                     type="button"
@@ -572,6 +543,21 @@ export const UserManagementModule: React.FC = () => {
 
               <div>
                 <label className="block font-semibold text-neutral-800 mb-1">
+                  Phone Number (Optional)
+                </label>
+                <input
+                  type="tel"
+                  value={provisionForm.phone}
+                  onChange={(e) =>
+                    setProvisionForm({ ...provisionForm, phone: e.target.value })
+                  }
+                  placeholder="+1 (555) 000-0000"
+                  className="w-full px-3 py-2 bg-neutral-50 border border-[#E5E7EB] rounded-md focus:outline-none focus:border-black"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-neutral-800 mb-1">
                   Assign System Role *
                 </label>
                 <select
@@ -598,49 +584,6 @@ export const UserManagementModule: React.FC = () => {
                 </p>
               </div>
 
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block font-semibold text-neutral-800">
-                    Temporary Sign-In Password *
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setProvisionForm({
-                        ...provisionForm,
-                        password: generatePassword(),
-                      })
-                    }
-                    className="text-[11px] text-neutral-600 hover:text-black flex items-center gap-1 cursor-pointer"
-                  >
-                    <RefreshCw className="w-3 h-3" /> Auto-generate
-                  </button>
-                </div>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    value={provisionForm.password}
-                    onChange={(e) =>
-                      setProvisionForm({ ...provisionForm, password: e.target.value })
-                    }
-                    placeholder="Enter password..."
-                    className="w-full pl-3 pr-10 py-2 bg-neutral-50 border border-[#E5E7EB] rounded-md focus:outline-none focus:border-black font-mono text-xs"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-2.5 top-2.5 text-neutral-500 hover:text-black"
-                  >
-                    {showPassword ? (
-                      <EyeOff className="w-3.5 h-3.5" />
-                    ) : (
-                      <Eye className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-                </div>
-              </div>
-
               <div className="p-3 bg-neutral-50 rounded border border-[#E5E7EB]">
                 <label className="flex items-start gap-2 cursor-pointer">
                   <input
@@ -656,10 +599,10 @@ export const UserManagementModule: React.FC = () => {
                   />
                   <div className="text-[11px] text-neutral-700">
                     <span className="font-semibold text-black">
-                      Send invitation email with login credentials
+                      Send authorization email with portal link
                     </span>
                     <p className="text-[#6B7280] mt-0.5">
-                      Sends an automated welcome email via Resend with the account email, password, and portal link.
+                      Sends an automated welcome email via Resend with the portal sign-in link.
                     </p>
                   </div>
                 </label>

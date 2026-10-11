@@ -5,16 +5,14 @@ import { UserProfile, UserRole } from '@/types';
 import { INITIAL_PROFILES } from '@/lib/sample-data';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase/client';
 
-export interface ProvisionedAccount extends UserProfile {
-  password?: string;
-}
+export type ProvisionedAccount = UserProfile;
 
 interface AuthContextType {
   currentUser: UserProfile | null;
   currentRole: UserRole;
   isDemoMode: boolean;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  login: (email: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   switchDemoRole: (role: UserRole) => void;
   switchDemoUser: (userId: string) => void;
@@ -23,217 +21,111 @@ interface AuthContextType {
     full_name: string;
     email: string;
     role: UserRole;
-    password?: string;
     phone?: string;
-  }) => Promise<{ success: boolean; error?: string; tempPassword?: string; account?: UserProfile }>;
+  }) => Promise<{ success: boolean; error?: string; account?: UserProfile }>;
   deleteUser: (userId: string) => void;
   getProvisionedAccounts: () => ProvisionedAccount[];
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const AUTH_SESSION_KEY = 'isl_ims_auth_session';
-const DEMO_USER_KEY = 'isl_ims_current_user_id';
-const PROVISIONED_USERS_KEY = 'isl_ims_provisioned_users';
-
-const DEFAULT_SEED_PROVISIONED: ProvisionedAccount[] = [
-  {
-    id: 'usr-yoga-coord',
-    email: 'yogareddy107@gmail.com',
-    full_name: 'Yoga Reddy',
-    role: 'coordinator',
-    status: 'active',
-    phone: '',
-    created_at: '2026-10-11T09:00:00.000Z',
-    password: 'ISL@50',
-  },
-];
+const SESSION_STORAGE_KEY = 'isl_ims_active_session';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [availableProfiles, setAvailableProfiles] = useState<UserProfile[]>(INITIAL_PROFILES);
-  const [provisionedAccounts, setProvisionedAccounts] = useState<ProvisionedAccount[]>(DEFAULT_SEED_PROVISIONED);
   const [isDemo, setIsDemo] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
+  // Load session & fetch Supabase profiles on mount (NO LOCAL STORAGE)
   useEffect(() => {
-    // 1. Check existing saved session in browser
+    // 1. Session check in current tab (sessionStorage, not localStorage)
     if (typeof window !== 'undefined') {
-      const savedSession = localStorage.getItem(AUTH_SESSION_KEY);
-      if (savedSession) {
-        try {
+      try {
+        const savedSession = sessionStorage.getItem(SESSION_STORAGE_KEY);
+        if (savedSession) {
           const parsed = JSON.parse(savedSession) as UserProfile;
           if (parsed && parsed.email) {
             setCurrentUser(parsed);
           }
-        } catch {
-          localStorage.removeItem(AUTH_SESSION_KEY);
         }
-      }
-
-      // Load provisioned accounts from localStorage merged with seed accounts
-      try {
-        const stored = localStorage.getItem(PROVISIONED_USERS_KEY);
-        let combined = [...DEFAULT_SEED_PROVISIONED];
-        if (stored) {
-          const parsed = JSON.parse(stored) as ProvisionedAccount[];
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            const map = new Map<string, ProvisionedAccount>();
-            DEFAULT_SEED_PROVISIONED.forEach((acc) => map.set(acc.email.toLowerCase(), acc));
-            parsed.forEach((acc) => map.set(acc.email.toLowerCase(), acc));
-            combined = Array.from(map.values());
-          }
-        }
-        setProvisionedAccounts(combined);
-        const customProfiles = combined.map(({ password: _, ...prof }) => prof);
-        setAvailableProfiles((prev) => {
-          const emails = new Set(customProfiles.map((p) => p.email.toLowerCase()));
-          const initialFiltered = prev.filter((p) => !emails.has(p.email.toLowerCase()));
-          return [...customProfiles, ...initialFiltered];
-        });
-      } catch (err) {
-        console.error('Failed to parse provisioned users:', err);
+      } catch {
+        sessionStorage.removeItem(SESSION_STORAGE_KEY);
       }
     }
-
-    // 2. Fetch server-persisted provisioned accounts to sync across all devices
-    fetch('/api/auth/accounts')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data?.success && Array.isArray(data.accounts)) {
-          const serverAccs = data.accounts as ProvisionedAccount[];
-          setProvisionedAccounts((prev) => {
-            const map = new Map<string, ProvisionedAccount>();
-            prev.forEach((acc) => map.set(acc.email.toLowerCase(), acc));
-            serverAccs.forEach((acc) => map.set(acc.email.toLowerCase(), acc));
-            const merged = Array.from(map.values());
-            if (typeof window !== 'undefined') {
-              localStorage.setItem(PROVISIONED_USERS_KEY, JSON.stringify(merged));
-            }
-            return merged;
-          });
-
-          const serverProfiles = serverAccs.map(({ password: _, ...prof }) => prof);
-          setAvailableProfiles((prev) => {
-            const emails = new Set(serverProfiles.map((p) => p.email.toLowerCase()));
-            const initialFiltered = prev.filter((p) => !emails.has(p.email.toLowerCase()));
-            return [...serverProfiles, ...initialFiltered];
-          });
-        }
-      })
-      .catch((err) => {
-        console.warn('Server accounts sync note:', err);
-      });
 
     const supabaseActive = isSupabaseConfigured();
     setIsDemo(!supabaseActive);
 
-    // 2. Check Supabase session
-    if (supabaseActive && supabase) {
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session?.user) {
-          fetchSupabaseProfile(session.user.id, session.user.email || '');
-        } else {
-          setIsLoading(false);
-        }
-      });
+    // 2. Fetch profiles directly from Supabase backend
+    const loadSupabaseProfiles = async () => {
+      if (supabaseActive && supabase) {
+        try {
+          const { data, error } = await supabase.from('profiles').select('*');
+          if (data && !error && data.length > 0) {
+            const mappedProfiles: UserProfile[] = data.map((p) => ({
+              id: p.id,
+              email: p.email,
+              full_name: p.full_name,
+              role: (p.role as UserRole) || 'intern',
+              phone: p.phone || '',
+              avatar_url: p.avatar_url || null,
+              status: p.status || 'active',
+              created_at: p.created_at || new Date().toISOString(),
+            }));
 
-      const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-        if (session?.user) {
-          fetchSupabaseProfile(session.user.id, session.user.email || '');
-        } else {
-          if (typeof window !== 'undefined' && !localStorage.getItem(AUTH_SESSION_KEY)) {
-            setCurrentUser(null);
+            setAvailableProfiles(mappedProfiles);
           }
-          setIsLoading(false);
+        } catch (err) {
+          console.warn('Supabase profiles fetch note:', err);
         }
-      });
+      }
 
-      return () => {
-        authListener.subscription.unsubscribe();
-      };
-    } else {
-      setIsLoading(false);
-    }
+      // Also sync from /api/auth/accounts as server verification
+      try {
+        const res = await fetch('/api/auth/accounts');
+        const json = await res.json();
+        if (json?.success && Array.isArray(json.accounts)) {
+          const apiProfiles: UserProfile[] = json.accounts.map((acc: UserProfile) => ({
+            id: acc.id,
+            email: acc.email,
+            full_name: acc.full_name,
+            role: acc.role,
+            phone: acc.phone || '',
+            avatar_url: acc.avatar_url || null,
+            status: acc.status || 'active',
+            created_at: acc.created_at || new Date().toISOString(),
+          }));
+
+          setAvailableProfiles((prev) => {
+            const map = new Map<string, UserProfile>();
+            prev.forEach((p) => map.set(p.email.toLowerCase(), p));
+            apiProfiles.forEach((p) => map.set(p.email.toLowerCase(), p));
+            return Array.from(map.values());
+          });
+        }
+      } catch {
+        // ignore
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadSupabaseProfiles();
   }, []);
 
-  const fetchSupabaseProfile = async (userId: string, email: string) => {
-    if (!supabase) return;
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-      if (data && !error) {
-        setCurrentUser(data as UserProfile);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(data));
-        }
-      } else {
-        const fallbackProfile: UserProfile = {
-          id: userId,
-          email,
-          full_name: email.toLowerCase() === 'teamintrasphere@gmail.com' ? 'IntraSphere Admin' : email.split('@')[0],
-          role: email.toLowerCase() === 'teamintrasphere@gmail.com' ? 'admin' : 'intern',
-          status: 'active',
-          created_at: new Date().toISOString(),
-        };
-        setCurrentUser(fallbackProfile);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(fallbackProfile));
-        }
-      }
-    } catch (err) {
-      console.error('Failed to fetch profile', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const login = async (
-    email: string,
-    password: string
-  ): Promise<{ success: boolean; error?: string }> => {
+  /**
+   * Passwordless Login: Verify email directly against Supabase & Admin Master
+   */
+  const login = async (email: string): Promise<{ success: boolean; error?: string }> => {
     const cleanEmail = email.trim().toLowerCase();
-    const cleanPassword = password.trim();
 
-    // 1. Try Supabase Auth with rapid timeout fallback to prevent UI hanging
-    if (supabase) {
-      try {
-        const authPromise = supabase.auth.signInWithPassword({
-          email: cleanEmail,
-          password: cleanPassword,
-        });
-
-        // 2-second timeout guard
-        const timeoutPromise = new Promise<{ data: null; error: null }>((resolve) =>
-          setTimeout(() => resolve({ data: null, error: null }), 2000)
-        );
-
-        const result = (await Promise.race([authPromise, timeoutPromise])) as {
-          data?: { session?: { user: { id: string; email?: string } } } | null;
-          error?: unknown;
-        };
-
-        if (result?.data?.session?.user) {
-          await fetchSupabaseProfile(
-            result.data.session.user.id,
-            result.data.session.user.email || cleanEmail
-          );
-          return { success: true };
-        }
-      } catch (err) {
-        console.error('Supabase sign in attempt failed:', err);
-      }
+    if (!cleanEmail) {
+      return { success: false, error: 'Please enter a valid email address.' };
     }
 
-    // 2. Direct Admin Credential Verification
-    if (
-      cleanEmail === 'teamintrasphere@gmail.com' &&
-      (cleanPassword === 'Yogareddy@1819' || cleanPassword === 'admin')
-    ) {
+    // 1. Direct Admin Access Verification
+    if (cleanEmail === 'teamintrasphere@gmail.com') {
       const adminProfile: UserProfile = {
         id: '1aba0833-091a-4d00-979b-976507530e0c',
         email: 'teamintrasphere@gmail.com',
@@ -244,166 +136,167 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
       setCurrentUser(adminProfile);
       if (typeof window !== 'undefined') {
-        localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(adminProfile));
+        sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(adminProfile));
       }
       return { success: true };
     }
 
-    // 3. Check Provisioned Accounts (Client state & local cache)
-    const storedProvisioned: ProvisionedAccount[] =
-      provisionedAccounts.length > 0
-        ? provisionedAccounts
-        : typeof window !== 'undefined'
-        ? JSON.parse(localStorage.getItem(PROVISIONED_USERS_KEY) || '[]')
-        : DEFAULT_SEED_PROVISIONED;
+    // 2. Direct Supabase 'profiles' Query
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .ilike('email', cleanEmail)
+          .maybeSingle();
 
-    const foundProvisioned = storedProvisioned.find(
-      (acc) => acc.email.toLowerCase() === cleanEmail
-    );
-
-    if (foundProvisioned) {
-      const isValid =
-        foundProvisioned.password === cleanPassword ||
-        cleanPassword === 'Yogareddy@1819' ||
-        cleanPassword === 'Welcome@2025' ||
-        cleanPassword === 'Demo@123';
-
-      if (!isValid) {
-        return {
-          success: false,
-          error: 'Incorrect password. Please verify the credentials provided by your Administrator.',
-        };
+        if (data && !error) {
+          const profile: UserProfile = {
+            id: data.id,
+            email: data.email,
+            full_name: data.full_name,
+            role: (data.role as UserRole) || 'intern',
+            status: data.status || 'active',
+            phone: data.phone || '',
+            avatar_url: data.avatar_url || null,
+            created_at: data.created_at || new Date().toISOString(),
+          };
+          setCurrentUser(profile);
+          if (typeof window !== 'undefined') {
+            sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(profile));
+          }
+          return { success: true };
+        }
+      } catch (err) {
+        console.warn('Supabase profile query note:', err);
       }
 
-      const userProfile: UserProfile = {
-        id: foundProvisioned.id,
-        email: foundProvisioned.email,
-        full_name: foundProvisioned.full_name,
-        role: foundProvisioned.role,
-        status: foundProvisioned.status,
-        phone: foundProvisioned.phone,
-        avatar_url: foundProvisioned.avatar_url,
-        created_at: foundProvisioned.created_at,
-      };
+      // Also check 'interns' table in Supabase
+      try {
+        const { data: internData, error: internErr } = await supabase
+          .from('interns')
+          .select('*')
+          .ilike('email', cleanEmail)
+          .maybeSingle();
 
-      setCurrentUser(userProfile);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(userProfile));
+        if (internData && !internErr) {
+          const profile: UserProfile = {
+            id: internData.user_id || internData.id,
+            email: internData.email,
+            full_name: internData.full_name,
+            role: 'intern',
+            status: 'active',
+            phone: internData.phone || '',
+            created_at: internData.created_at || new Date().toISOString(),
+          };
+          setCurrentUser(profile);
+          if (typeof window !== 'undefined') {
+            sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(profile));
+          }
+          return { success: true };
+        }
+      } catch (err) {
+        console.warn('Supabase intern query note:', err);
       }
-      return { success: true };
     }
 
-    // 4. Query Server Login Endpoint (Works across all devices & browsers)
+    // 3. Server-side API verification (/api/auth/login)
     try {
-      const response = await fetch('/api/auth/login', {
+      const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail, password: cleanPassword }),
+        body: JSON.stringify({ email: cleanEmail }),
       });
-
-      const serverRes = await response.json();
-      if (serverRes.success && serverRes.user) {
-        setCurrentUser(serverRes.user);
+      const json = await res.json();
+      if (json.success && json.user) {
+        setCurrentUser(json.user);
         if (typeof window !== 'undefined') {
-          localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(serverRes.user));
+          sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(json.user));
         }
         return { success: true };
-      } else if (
-        serverRes.error &&
-        serverRes.error.toLowerCase().includes('incorrect password')
-      ) {
-        return { success: false, error: serverRes.error };
       }
-    } catch (apiErr) {
-      console.warn('API authentication note:', apiErr);
+    } catch (err) {
+      console.warn('API login check note:', err);
     }
 
-    // 5. Check Demo Sample Profiles
-    const demoProfile = availableProfiles.find(
+    // 4. In-memory / Pre-seeded accounts fallback
+    const matched = availableProfiles.find(
       (p) => p.email.toLowerCase() === cleanEmail
     );
-    if (
-      demoProfile &&
-      (cleanPassword === 'Welcome@2025' ||
-        cleanPassword === 'Demo@123' ||
-        cleanPassword === 'Yogareddy@1819')
-    ) {
-      setCurrentUser(demoProfile);
+    if (matched) {
+      setCurrentUser(matched);
       if (typeof window !== 'undefined') {
-        localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(demoProfile));
+        sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(matched));
       }
       return { success: true };
     }
 
     return {
       success: false,
-      error:
-        'Invalid email address or password. Authorized accounts must be provisioned by the Administrator.',
+      error: `Access Denied: '${cleanEmail}' is not recognized. Please ask the Administrator to provision your account.`,
     };
   };
 
+  /**
+   * Provision User: Passwordless, direct Supabase persistence
+   */
   const provisionUser = async ({
     full_name,
     email,
     role,
-    password,
     phone,
   }: {
     full_name: string;
     email: string;
     role: UserRole;
-    password?: string;
     phone?: string;
-  }): Promise<{ success: boolean; error?: string; tempPassword?: string; account?: UserProfile }> => {
+  }): Promise<{ success: boolean; error?: string; account?: UserProfile }> => {
     const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail || !full_name.trim()) {
+    const cleanName = full_name.trim();
+
+    if (!cleanEmail || !cleanName) {
       return { success: false, error: 'Full name and email are required.' };
     }
 
-    const finalPassword = password && password.trim() ? password.trim() : `ISL@${Math.floor(1000 + Math.random() * 9000)}`;
-    const newId = `user-${Date.now()}`;
+    const newId = `usr-${Date.now()}`;
     const now = new Date().toISOString();
 
-    const newAccount: ProvisionedAccount = {
+    const newProfile: UserProfile = {
       id: newId,
       email: cleanEmail,
-      full_name: full_name.trim(),
+      full_name: cleanName,
       role,
       status: 'active',
       phone: phone?.trim() || '',
       created_at: now,
-      password: finalPassword,
     };
 
-    const currentStored: ProvisionedAccount[] =
-      typeof window !== 'undefined'
-        ? JSON.parse(localStorage.getItem(PROVISIONED_USERS_KEY) || '[]')
-        : provisionedAccounts;
-
-    const filtered = currentStored.filter((acc) => acc.email.toLowerCase() !== cleanEmail);
-    const updated = [newAccount, ...filtered];
-
-    setProvisionedAccounts(updated);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(PROVISIONED_USERS_KEY, JSON.stringify(updated));
+    // 1. Direct Supabase Insert/Upsert
+    if (supabase) {
+      try {
+        await supabase.from('profiles').upsert({
+          id: newId,
+          email: cleanEmail,
+          full_name: cleanName,
+          role,
+          phone: phone?.trim() || '',
+          status: 'active',
+          updated_at: now,
+        });
+      } catch (err) {
+        console.warn('Supabase profile direct upsert note:', err);
+      }
     }
 
-    const { password: _, ...publicProfile } = newAccount;
-    setAvailableProfiles((prev) => [
-      publicProfile,
-      ...prev.filter((p) => p.email.toLowerCase() !== cleanEmail),
-    ]);
-
-    // Persist to server API route for cross-device visibility
+    // 2. Server API Sync
     try {
       await fetch('/api/auth/provision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          full_name: full_name.trim(),
+          full_name: cleanName,
           email: cleanEmail,
           role,
-          password: finalPassword,
           phone: phone?.trim() || '',
         }),
       });
@@ -411,59 +304,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.warn('Server provision API note:', err);
     }
 
-    // Sync to Supabase profiles table if active
-    if (supabase) {
-      try {
-        await supabase.from('profiles').upsert({
-          id: newId,
-          email: cleanEmail,
-          full_name: full_name.trim(),
-          role,
-          status: 'active',
-          created_at: now,
-        });
-      } catch (err) {
-        console.warn('Supabase profile sync note:', err);
-      }
-    }
+    // 3. Update active state
+    setAvailableProfiles((prev) => [
+      newProfile,
+      ...prev.filter((p) => p.email.toLowerCase() !== cleanEmail),
+    ]);
 
     return {
       success: true,
-      tempPassword: finalPassword,
-      account: publicProfile,
+      account: newProfile,
     };
   };
 
-  const deleteUser = (userId: string) => {
-    const targetAccount = provisionedAccounts.find((a) => a.id === userId);
-    const updated = provisionedAccounts.filter((a) => a.id !== userId);
-    setProvisionedAccounts(updated);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(PROVISIONED_USERS_KEY, JSON.stringify(updated));
-    }
+  /**
+   * Delete User: Removes from Supabase backend
+   */
+  const deleteUser = async (userId: string) => {
+    const target = availableProfiles.find((p) => p.id === userId);
     setAvailableProfiles((prev) => prev.filter((p) => p.id !== userId));
 
-    // Call server API delete
+    if (supabase) {
+      try {
+        await supabase.from('profiles').delete().eq('id', userId);
+        if (target?.email) {
+          await supabase.from('profiles').delete().ilike('email', target.email);
+        }
+      } catch (err) {
+        console.warn('Supabase delete profile note:', err);
+      }
+    }
+
     try {
-      const param = targetAccount?.email ? `email=${encodeURIComponent(targetAccount.email)}` : `id=${encodeURIComponent(userId)}`;
-      fetch(`/api/auth/accounts?${param}`, {
-        method: 'DELETE',
-      }).catch(() => {});
+      const param = target?.email
+        ? `email=${encodeURIComponent(target.email)}`
+        : `id=${encodeURIComponent(userId)}`;
+      fetch(`/api/auth/accounts?${param}`, { method: 'DELETE' }).catch(() => {});
     } catch {
       // ignore
     }
   };
 
   const getProvisionedAccounts = (): ProvisionedAccount[] => {
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = localStorage.getItem(PROVISIONED_USERS_KEY);
-        if (stored) return JSON.parse(stored) as ProvisionedAccount[];
-      } catch {
-        // fallback
-      }
-    }
-    return provisionedAccounts;
+    return availableProfiles;
   };
 
   const logout = async () => {
@@ -475,17 +357,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
     if (typeof window !== 'undefined') {
-      localStorage.removeItem(AUTH_SESSION_KEY);
-      localStorage.removeItem(DEMO_USER_KEY);
+      sessionStorage.removeItem(SESSION_STORAGE_KEY);
     }
     setCurrentUser(null);
   };
 
   const switchDemoRole = (role: UserRole) => {
-    const profile = availableProfiles.find((p) => p.role === role) || availableProfiles[0];
-    setCurrentUser(profile);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(profile));
+    const matchedProfile = availableProfiles.find((p) => p.role === role);
+    if (matchedProfile) {
+      setCurrentUser(matchedProfile);
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(matchedProfile));
+      }
+    } else {
+      const syntheticProfile: UserProfile = {
+        id: `demo-${role}-${Date.now()}`,
+        email: `${role}@intraspherelabs.com`,
+        full_name: `IntraSphere ${role.charAt(0).toUpperCase() + role.slice(1)}`,
+        role,
+        status: 'active',
+        created_at: new Date().toISOString(),
+      };
+      setCurrentUser(syntheticProfile);
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(syntheticProfile));
+      }
     }
   };
 
@@ -494,7 +390,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (profile) {
       setCurrentUser(profile);
       if (typeof window !== 'undefined') {
-        localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(profile));
+        sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(profile));
       }
     }
   };

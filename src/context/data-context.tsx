@@ -36,6 +36,7 @@ import {
 } from '@/lib/sample-data';
 import { useAuth } from './auth-context';
 import { dispatchNotification } from '@/lib/notifications';
+import { supabase } from '@/lib/supabase/client';
 
 interface DataContextType {
   interns: Intern[];
@@ -80,64 +81,43 @@ interface DataContextType {
   filteredInterns: Intern[];
   filteredTasks: Task[];
   filteredProjects: Project[];
-  filteredCheckins: CheckInLog[];
   filteredDocuments: IMSDocument[];
-  filteredReviews: PerformanceReview[];
+  filteredCheckins: CheckInLog[];
   filteredAnnouncements: Announcement[];
+  filteredReviews: PerformanceReview[];
   currentInternRecord: Intern | null;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
-const STORAGE_PREFIX = 'isl_ims_prod_v2_';
-
 export function DataProvider({ children }: { children: React.ReactNode }) {
-  const { currentUser, currentRole, isDemoMode } = useAuth();
+  const { currentUser, currentRole } = useAuth();
 
-  // Helper to load or fallback, purging old mock data
-  const loadState = <T,>(key: string, initial: T): T => {
-    if (typeof window === 'undefined') return initial;
+  const [interns, setInterns] = useState<Intern[]>(INITIAL_INTERNS);
+  const [roles, setRoles] = useState<InternshipRole[]>(INITIAL_ROLES);
+  const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
+  const [tasks, setTasks] = useState<Task[]>(INITIAL_TASKS);
+  const [onboardingItems, setOnboardingItems] = useState<OnboardingItem[]>(INITIAL_ONBOARDING_ITEMS);
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>(INITIAL_CALENDAR_EVENTS);
+  const [documents, setDocuments] = useState<IMSDocument[]>(INITIAL_DOCUMENTS);
+  const [checkins, setCheckins] = useState<CheckInLog[]>(INITIAL_CHECKINS);
+  const [announcements, setAnnouncements] = useState<Announcement[]>(INITIAL_ANNOUNCEMENTS);
+  const [reviews, setReviews] = useState<PerformanceReview[]>(INITIAL_REVIEWS);
+  const [certificates, setCertificates] = useState<Certificate[]>(INITIAL_CERTIFICATES);
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(INITIAL_ACTIVITY_LOGS);
+  const [settings, setSettings] = useState<SystemSettings>(INITIAL_SETTINGS);
+
+  // Helper to safely write to Supabase in the background
+  const syncSupabase = (fn: () => PromiseLike<unknown>) => {
+    if (!supabase) return;
     try {
-      // Purge old mock prefix if present
-      localStorage.removeItem('isl_ims_data_' + key);
-      const stored = localStorage.getItem(STORAGE_PREFIX + key);
-      return stored ? JSON.parse(stored) : initial;
-    } catch {
-      return initial;
+      Promise.resolve(fn()).catch((err) => {
+        console.warn('Supabase sync notice:', err);
+      });
+    } catch (err) {
+      console.warn('Supabase operation notice:', err);
     }
   };
-
-  const [interns, setInterns] = useState<Intern[]>(() => loadState('interns', INITIAL_INTERNS));
-  const [roles, setRoles] = useState<InternshipRole[]>(() => loadState('roles', INITIAL_ROLES));
-  const [projects, setProjects] = useState<Project[]>(() => loadState('projects', INITIAL_PROJECTS));
-  const [tasks, setTasks] = useState<Task[]>(() => loadState('tasks', INITIAL_TASKS));
-  const [onboardingItems, setOnboardingItems] = useState<OnboardingItem[]>(() =>
-    loadState('onboarding', INITIAL_ONBOARDING_ITEMS)
-  );
-  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>(() =>
-    loadState('calendar', INITIAL_CALENDAR_EVENTS)
-  );
-  const [documents, setDocuments] = useState<IMSDocument[]>(() =>
-    loadState('documents', INITIAL_DOCUMENTS)
-  );
-  const [checkins, setCheckins] = useState<CheckInLog[]>(() =>
-    loadState('checkins', INITIAL_CHECKINS)
-  );
-  const [announcements, setAnnouncements] = useState<Announcement[]>(() =>
-    loadState('announcements', INITIAL_ANNOUNCEMENTS)
-  );
-  const [reviews, setReviews] = useState<PerformanceReview[]>(() =>
-    loadState('reviews', INITIAL_REVIEWS)
-  );
-  const [certificates, setCertificates] = useState<Certificate[]>(() =>
-    loadState('certificates', INITIAL_CERTIFICATES)
-  );
-  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() =>
-    loadState('logs', INITIAL_ACTIVITY_LOGS)
-  );
-  const [settings, setSettings] = useState<SystemSettings>(() =>
-    loadState('settings', INITIAL_SETTINGS)
-  );
 
   // Register Service Worker for mobile push and lock-screen alerts
   useEffect(() => {
@@ -148,70 +128,88 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Debounced persistence to prevent blocking the main thread during high concurrency
+  // Fetch all collections directly from Supabase on mount (NO LOCAL STORAGE)
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    const client = supabase;
+    if (!client) return;
 
-    const timer = setTimeout(() => {
+    const loadSupabaseData = async () => {
       try {
-        localStorage.setItem(STORAGE_PREFIX + 'interns', JSON.stringify(interns));
-        localStorage.setItem(STORAGE_PREFIX + 'roles', JSON.stringify(roles));
-        localStorage.setItem(STORAGE_PREFIX + 'projects', JSON.stringify(projects));
-        localStorage.setItem(STORAGE_PREFIX + 'tasks', JSON.stringify(tasks));
-        localStorage.setItem(STORAGE_PREFIX + 'onboarding', JSON.stringify(onboardingItems));
-        localStorage.setItem(STORAGE_PREFIX + 'calendar', JSON.stringify(calendarEvents));
-        localStorage.setItem(STORAGE_PREFIX + 'documents', JSON.stringify(documents));
-        localStorage.setItem(STORAGE_PREFIX + 'checkins', JSON.stringify(checkins));
-        localStorage.setItem(STORAGE_PREFIX + 'announcements', JSON.stringify(announcements));
-        localStorage.setItem(STORAGE_PREFIX + 'reviews', JSON.stringify(reviews));
-        localStorage.setItem(STORAGE_PREFIX + 'certificates', JSON.stringify(certificates));
-        localStorage.setItem(STORAGE_PREFIX + 'logs', JSON.stringify(activityLogs));
-        localStorage.setItem(STORAGE_PREFIX + 'settings', JSON.stringify(settings));
+        const [
+          internsRes,
+          rolesRes,
+          projectsRes,
+          tasksRes,
+          onboardingRes,
+          calendarRes,
+          documentsRes,
+          checkinsRes,
+          announcementsRes,
+          reviewsRes,
+          certificatesRes,
+          logsRes,
+          settingsRes,
+        ] = await Promise.allSettled([
+          client.from('interns').select('*').order('created_at', { ascending: false }),
+          client.from('internship_roles').select('*'),
+          client.from('projects').select('*'),
+          client.from('tasks').select('*').order('created_at', { ascending: false }),
+          client.from('onboarding_items').select('*'),
+          client.from('calendar_events').select('*'),
+          client.from('documents').select('*').order('created_at', { ascending: false }),
+          client.from('attendance_logs').select('*').order('created_at', { ascending: false }),
+          client.from('announcements').select('*').order('created_at', { ascending: false }),
+          client.from('reviews').select('*').order('created_at', { ascending: false }),
+          client.from('certificates').select('*').order('created_at', { ascending: false }),
+          client.from('activity_logs').select('*').order('created_at', { ascending: false }),
+          client.from('system_settings').select('*').maybeSingle(),
+        ]);
+
+        if (internsRes.status === 'fulfilled' && internsRes.value.data && internsRes.value.data.length > 0) {
+          setInterns(internsRes.value.data as Intern[]);
+        }
+        if (rolesRes.status === 'fulfilled' && rolesRes.value.data && rolesRes.value.data.length > 0) {
+          setRoles(rolesRes.value.data as InternshipRole[]);
+        }
+        if (projectsRes.status === 'fulfilled' && projectsRes.value.data && projectsRes.value.data.length > 0) {
+          setProjects(projectsRes.value.data as Project[]);
+        }
+        if (tasksRes.status === 'fulfilled' && tasksRes.value.data && tasksRes.value.data.length > 0) {
+          setTasks(tasksRes.value.data as Task[]);
+        }
+        if (onboardingRes.status === 'fulfilled' && onboardingRes.value.data && onboardingRes.value.data.length > 0) {
+          setOnboardingItems(onboardingRes.value.data as OnboardingItem[]);
+        }
+        if (calendarRes.status === 'fulfilled' && calendarRes.value.data && calendarRes.value.data.length > 0) {
+          setCalendarEvents(calendarRes.value.data as CalendarEvent[]);
+        }
+        if (documentsRes.status === 'fulfilled' && documentsRes.value.data && documentsRes.value.data.length > 0) {
+          setDocuments(documentsRes.value.data as IMSDocument[]);
+        }
+        if (checkinsRes.status === 'fulfilled' && checkinsRes.value.data && checkinsRes.value.data.length > 0) {
+          setCheckins(checkinsRes.value.data as CheckInLog[]);
+        }
+        if (announcementsRes.status === 'fulfilled' && announcementsRes.value.data && announcementsRes.value.data.length > 0) {
+          setAnnouncements(announcementsRes.value.data as Announcement[]);
+        }
+        if (reviewsRes.status === 'fulfilled' && reviewsRes.value.data && reviewsRes.value.data.length > 0) {
+          setReviews(reviewsRes.value.data as PerformanceReview[]);
+        }
+        if (certificatesRes.status === 'fulfilled' && certificatesRes.value.data && certificatesRes.value.data.length > 0) {
+          setCertificates(certificatesRes.value.data as Certificate[]);
+        }
+        if (logsRes.status === 'fulfilled' && logsRes.value.data && logsRes.value.data.length > 0) {
+          setActivityLogs(logsRes.value.data as ActivityLog[]);
+        }
+        if (settingsRes.status === 'fulfilled' && settingsRes.value.data) {
+          setSettings((prev) => ({ ...prev, ...(settingsRes.value.data as unknown as Partial<SystemSettings>) }));
+        }
       } catch (err) {
-        console.warn('Storage write note:', err);
-      }
-    }, 120);
-
-    return () => clearTimeout(timer);
-  }, [
-    interns,
-    roles,
-    projects,
-    tasks,
-    onboardingItems,
-    calendarEvents,
-    documents,
-    checkins,
-    announcements,
-    reviews,
-    certificates,
-    activityLogs,
-    settings,
-  ]);
-
-  // Real-time synchronization across browser tabs and concurrent sessions
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const handleStorageChange = (e: StorageEvent) => {
-      if (!e.key || !e.newValue) return;
-      try {
-        if (e.key === STORAGE_PREFIX + 'tasks') setTasks(JSON.parse(e.newValue));
-        else if (e.key === STORAGE_PREFIX + 'interns') setInterns(JSON.parse(e.newValue));
-        else if (e.key === STORAGE_PREFIX + 'announcements') setAnnouncements(JSON.parse(e.newValue));
-        else if (e.key === STORAGE_PREFIX + 'onboarding') setOnboardingItems(JSON.parse(e.newValue));
-        else if (e.key === STORAGE_PREFIX + 'checkins') setCheckins(JSON.parse(e.newValue));
-        else if (e.key === STORAGE_PREFIX + 'documents') setDocuments(JSON.parse(e.newValue));
-        else if (e.key === STORAGE_PREFIX + 'reviews') setReviews(JSON.parse(e.newValue));
-        else if (e.key === STORAGE_PREFIX + 'projects') setProjects(JSON.parse(e.newValue));
-        else if (e.key === STORAGE_PREFIX + 'certificates') setCertificates(JSON.parse(e.newValue));
-      } catch (err) {
-        console.error('Storage sync error:', err);
+        console.warn('Supabase bulk load note:', err);
       }
     };
 
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    loadSupabaseData();
   }, []);
 
   const logActivity = (action: string, module: string, details: string) => {
@@ -226,6 +224,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
     setActivityLogs((prev) => [newLog, ...prev]);
+    syncSupabase(() => supabase!.from('activity_logs').insert(newLog));
   };
 
   // Find intern record for current logged in user if intern
@@ -233,10 +232,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     interns.find(
       (i) =>
         i.user_id === currentUser?.id ||
-        i.email.toLowerCase() === currentUser?.email.toLowerCase()
+        (i.email && currentUser?.email && i.email.toLowerCase() === currentUser.email.toLowerCase())
     ) || null;
 
-  // Add Intern & Auto-populate Onboarding Checklist
+  // Add Intern & Auto-populate Onboarding Checklist directly in Supabase
   const addIntern = (newInternData: Omit<Intern, 'id' | 'created_at' | 'updated_at'>) => {
     const id = 'intern-' + Date.now();
     const now = new Date().toISOString();
@@ -301,13 +300,22 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     };
     setDocuments((prev) => [offerDoc, ...prev]);
 
+    // Save directly to Supabase
+    syncSupabase(() => supabase!.from('interns').insert(createdIntern));
+    syncSupabase(() => supabase!.from('onboarding_items').insert(initialItems));
+    syncSupabase(() => supabase!.from('documents').insert(offerDoc));
+
     logActivity('Added Intern', 'Interns', `Added intern ${createdIntern.full_name} (${createdIntern.role_title})`);
   };
 
   const updateIntern = (id: string, updates: Partial<Intern>) => {
+    const updatedPayload = { ...updates, updated_at: new Date().toISOString() };
     setInterns((prev) =>
-      prev.map((i) => (i.id === id ? { ...i, ...updates, updated_at: new Date().toISOString() } : i))
+      prev.map((i) => (i.id === id ? { ...i, ...updatedPayload } : i))
     );
+
+    syncSupabase(() => supabase!.from('interns').update(updatedPayload).eq('id', id));
+
     logActivity('Updated Intern Profile', 'Interns', `Updated intern profile ID ${id}`);
   };
 
@@ -315,23 +323,26 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setInterns((prev) =>
       prev.map((i) => (i.id === id ? { ...i, is_archived: true, updated_at: new Date().toISOString() } : i))
     );
+
+    syncSupabase(() => supabase!.from('interns').update({ is_archived: true }).eq('id', id));
+
     logActivity('Archived Intern', 'Interns', `Archived intern record ${id}`);
   };
 
   const toggleOnboardingItem = (itemId: string, isCompleted: boolean, blockerNotes?: string) => {
+    const patch = {
+      is_completed: isCompleted,
+      completed_at: isCompleted ? new Date().toISOString() : null,
+      completed_by: isCompleted ? currentUser?.full_name || 'Staff' : null,
+      blocker_notes: blockerNotes !== undefined ? blockerNotes : undefined,
+    };
+
     setOnboardingItems((prev) =>
-      prev.map((item) =>
-        item.id === itemId
-          ? {
-              ...item,
-              is_completed: isCompleted,
-              completed_at: isCompleted ? new Date().toISOString() : null,
-              completed_by: isCompleted ? currentUser?.full_name : null,
-              blocker_notes: blockerNotes !== undefined ? blockerNotes : item.blocker_notes,
-            }
-          : item
-      )
+      prev.map((item) => (item.id === itemId ? { ...item, ...patch } : item))
     );
+
+    syncSupabase(() => supabase!.from('onboarding_items').update(patch).eq('id', itemId));
+
     logActivity(
       isCompleted ? 'Completed Onboarding Step' : 'Reopened Onboarding Step',
       'Onboarding',
@@ -345,6 +356,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       id: 'onb-custom-' + Date.now(),
     };
     setOnboardingItems((prev) => [...prev, newItem]);
+
+    syncSupabase(() => supabase!.from('onboarding_items').insert(newItem));
+
     logActivity('Added Custom Onboarding Item', 'Onboarding', `Item: ${itemData.title}`);
   };
 
@@ -357,6 +371,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       updated_at: now,
     };
     setTasks((prev) => [newTask, ...prev]);
+
+    syncSupabase(() => supabase!.from('tasks').insert(newTask));
+
     logActivity('Created Task', 'Tasks', `Created task "${newTask.title}" for ${newTask.assigned_to_name}`);
 
     // Out-of-app notification
@@ -381,7 +398,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
               : updates.status && updates.status !== 'Completed'
               ? null
               : t.completed_at;
-          return { ...t, ...updates, updated_at: now, completed_at: completedAt };
+          const merged = { ...t, ...updates, updated_at: now, completed_at: completedAt };
+          syncSupabase(() => supabase!.from('tasks').update(merged).eq('id', taskId));
+          return merged;
         }
         return t;
       })
@@ -411,7 +430,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
     setTasks((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, comments: [...t.comments, comment] } : t))
+      prev.map((t) => {
+        if (t.id === taskId) {
+          const updatedComments = [...t.comments, comment];
+          syncSupabase(() => supabase!.from('tasks').update({ comments: updatedComments }).eq('id', taskId));
+          return { ...t, comments: updatedComments };
+        }
+        return t;
+      })
     );
     logActivity('Added Task Comment', 'Tasks', `Comment on task ${taskId}`);
   };
@@ -420,12 +446,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setTasks((prev) =>
       prev.map((t) => {
         if (t.id === taskId) {
-          return {
-            ...t,
-            subtasks: t.subtasks.map((st) =>
-              st.id === subtaskId ? { ...st, completed: !st.completed } : st
-            ),
-          };
+          const updatedSubtasks = t.subtasks.map((st) =>
+            st.id === subtaskId ? { ...st, completed: !st.completed } : st
+          );
+          syncSupabase(() => supabase!.from('tasks').update({ subtasks: updatedSubtasks }).eq('id', taskId));
+          return { ...t, subtasks: updatedSubtasks };
         }
         return t;
       })
@@ -439,12 +464,22 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
     setProjects((prev) => [newProj, ...prev]);
+
+    syncSupabase(() => supabase!.from('projects').insert(newProj));
+
     logActivity('Created Project', 'Projects', `Project: ${newProj.name}`);
   };
 
   const updateProject = (projectId: string, updates: Partial<Project>) => {
     setProjects((prev) =>
-      prev.map((p) => (p.id === projectId ? { ...p, ...updates, updated_at: new Date().toISOString() } : p))
+      prev.map((p) => {
+        if (p.id === projectId) {
+          const merged = { ...p, ...updates, updated_at: new Date().toISOString() };
+          syncSupabase(() => supabase!.from('projects').update(merged).eq('id', projectId));
+          return merged;
+        }
+        return p;
+      })
     );
     logActivity('Updated Project', 'Projects', `Project updated: ${projectId}`);
   };
@@ -456,14 +491,17 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
     setDocuments((prev) => [newDoc, ...prev]);
+
+    syncSupabase(() => supabase!.from('documents').insert(newDoc));
+
     logActivity('Added Document', 'Documents', `Document: ${newDoc.title}`);
   };
 
   const updateDocument = (docId: string, updates: Partial<IMSDocument>) => {
-    setDocuments((prev) => {
-      const next = prev.map((d) => {
+    setDocuments((prev) =>
+      prev.map((d) => {
         if (d.id === docId) {
-          return {
+          const merged = {
             ...d,
             ...updates,
             offer_details: updates.offer_details
@@ -487,18 +525,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
                 }
               : d.offer_details,
           };
+
+          syncSupabase(() => supabase!.from('documents').update(merged).eq('id', docId));
+
+          return merged;
         }
         return d;
-      });
-      if (typeof window !== 'undefined') {
-        try {
-          localStorage.setItem(STORAGE_PREFIX + 'documents', JSON.stringify(next));
-        } catch (e) {
-          console.warn('Documents immediate save notice:', e);
-        }
-      }
-      return next;
-    });
+      })
+    );
     logActivity('Updated Document', 'Documents', `Document terms updated: ${docId}`);
   };
 
@@ -507,9 +541,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setDocuments((prev) =>
       prev.map((d) => {
         if (d.id === docId && d.offer_details) {
-          return {
+          const merged = {
             ...d,
-            status: 'Approved',
+            status: 'Approved' as const,
             approved_by: currentUser?.full_name,
             approved_at: now,
             offer_details: {
@@ -517,6 +551,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
               is_approved: true,
             },
           };
+          syncSupabase(() => supabase!.from('documents').update(merged).eq('id', docId));
+          return merged;
         }
         return d;
       })
@@ -529,18 +565,19 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setDocuments((prev) =>
       prev.map((d) => {
         if (d.id === docId && d.offer_details) {
-          // Update associated intern status if present
           if (d.intern_id) {
             updateIntern(d.intern_id, { status: 'Offer Sent' });
           }
-          return {
+          const merged = {
             ...d,
-            status: 'Issued',
+            status: 'Issued' as const,
             offer_details: {
               ...d.offer_details,
               is_issued: true,
             },
           };
+          syncSupabase(() => supabase!.from('documents').update(merged).eq('id', docId));
+          return merged;
         }
         return d;
       })
@@ -566,6 +603,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
     setCheckins((prev) => [newCheckin, ...prev]);
+
+    syncSupabase(() => supabase!.from('attendance_logs').insert(newCheckin));
+
     logActivity('Submitted Check-in', 'Attendance', `Check-in for ${newCheckin.intern_name} on ${newCheckin.date}`);
 
     const hasBlocker = Boolean(newCheckin.blockers && newCheckin.blockers.trim().length > 0);
@@ -583,16 +623,19 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const reviewCheckin = (checkinId: string, notes: string) => {
     setCheckins((prev) =>
-      prev.map((c) =>
-        c.id === checkinId
-          ? {
-              ...c,
-              reviewed_by_id: currentUser?.id,
-              reviewer_name: currentUser?.full_name,
-              reviewer_notes: notes,
-            }
-          : c
-      )
+      prev.map((c) => {
+        if (c.id === checkinId) {
+          const merged = {
+            ...c,
+            reviewed_by_id: currentUser?.id,
+            reviewer_name: currentUser?.full_name,
+            reviewer_notes: notes,
+          };
+          syncSupabase(() => supabase!.from('attendance_logs').update(merged).eq('id', checkinId));
+          return merged;
+        }
+        return c;
+      })
     );
     logActivity('Reviewed Check-in', 'Attendance', `Reviewed check-in: ${checkinId}`);
 
@@ -617,6 +660,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
     setAnnouncements((prev) => [newAnn, ...prev]);
+
+    syncSupabase(() => supabase!.from('announcements').insert(newAnn));
+
     logActivity('Posted Announcement', 'Announcements', `Announcement: ${newAnn.title}`);
 
     dispatchNotification({
@@ -634,6 +680,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
     setReviews((prev) => [newRev, ...prev]);
+
+    syncSupabase(() => supabase!.from('reviews').insert(newRev));
+
     logActivity('Submitted Performance Review', 'Feedback', `Review for ${newRev.intern_name}`);
 
     const targetIntern = interns.find((i) => i.id === newRev.intern_id);
@@ -654,6 +703,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
     setCertificates((prev) => [newCert, ...prev]);
+
+    syncSupabase(() => supabase!.from('certificates').insert(newCert));
+
     logActivity('Created Certificate Draft', 'Certificates', `Certificate for ${newCert.intern_name}`);
   };
 
@@ -671,12 +723,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           } else if (status === 'Approved' && c.intern_id) {
             updateIntern(c.intern_id, { certificate_status: 'Approved' });
           }
-          return {
+          const merged = {
             ...c,
             status,
             approved_by: approvedBy,
             issued_by: issuedBy,
           };
+          syncSupabase(() => supabase!.from('certificates').update(merged).eq('id', certId));
+          return merged;
         }
         return c;
       })
@@ -691,19 +745,16 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
     setCalendarEvents((prev) => [newEv, ...prev]);
+
+    syncSupabase(() => supabase!.from('calendar_events').insert(newEv));
+
     logActivity('Created Calendar Event', 'Calendar', `Event: ${newEv.title}`);
   };
 
   const updateSettings = (newSettings: Partial<SystemSettings>) => {
     setSettings((prev) => {
       const merged = { ...prev, ...newSettings };
-      if (typeof window !== 'undefined') {
-        try {
-          localStorage.setItem(STORAGE_PREFIX + 'settings', JSON.stringify(merged));
-        } catch (e) {
-          console.warn('Settings direct save notice:', e);
-        }
-      }
+      syncSupabase(() => supabase!.from('system_settings').upsert({ id: 'default', ...merged }));
       return merged;
     });
     logActivity('Updated System Settings', 'Settings', 'Configured brand identity and platform parameters');
@@ -723,143 +774,120 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setCertificates(INITIAL_CERTIFICATES);
     setActivityLogs(INITIAL_ACTIVITY_LOGS);
     setSettings(INITIAL_SETTINGS);
-    if (typeof window !== 'undefined') {
-      Object.keys(localStorage).forEach((k) => {
-        if (k.startsWith('isl_ims_')) localStorage.removeItem(k);
-      });
-    }
   };
 
-  // ---------------------------------------------------------
-  // ROLE-BASED ACCESS CONTROL (DATA FILTERING)
-  // ---------------------------------------------------------
-  // 1. Interns list
-  const filteredInterns = interns.filter((i) => {
+  // Role-filtered helpers
+  const filteredInterns = interns.filter((intern) => {
     if (currentRole === 'admin') return true;
     if (currentRole === 'coordinator') {
-      return i.coordinator_id === currentUser?.id || i.coordinator_name === currentUser?.full_name;
+      return intern.coordinator_id === currentUser?.id || intern.coordinator_name === currentUser?.full_name;
     }
     if (currentRole === 'intern') {
-      // Intern only sees themselves
+      return intern.user_id === currentUser?.id || intern.email.toLowerCase() === currentUser?.email.toLowerCase();
+    }
+    return false;
+  });
+
+  const filteredTasks = tasks.filter((task) => {
+    if (currentRole === 'admin') return true;
+    if (currentRole === 'coordinator') {
+      const assignedIntern = interns.find((i) => i.id === task.assigned_to_id);
       return (
-        i.user_id === currentUser?.id ||
-        i.email.toLowerCase() === currentUser?.email.toLowerCase()
+        task.created_by_id === currentUser?.id ||
+        (assignedIntern &&
+          (assignedIntern.coordinator_id === currentUser?.id ||
+            assignedIntern.coordinator_name === currentUser?.full_name))
+      );
+    }
+    if (currentRole === 'intern') {
+      return (
+        task.assigned_to_id === currentUser?.id ||
+        (currentInternRecord && task.assigned_to_id === currentInternRecord.id)
       );
     }
     return false;
   });
 
-  // 2. Tasks
-  const filteredTasks = tasks.filter((t) => {
+  const filteredProjects = projects.filter((project) => {
     if (currentRole === 'admin') return true;
     if (currentRole === 'coordinator') {
-      // Coordinator sees tasks for interns assigned to them
-      const assignedIntern = interns.find((i) => i.id === t.assigned_to_id);
       return (
-        assignedIntern?.coordinator_id === currentUser?.id ||
-        assignedIntern?.coordinator_name === currentUser?.full_name ||
-        t.created_by_id === currentUser?.id
+        project.project_lead_id === currentUser?.id ||
+        project.team_member_ids?.includes(currentUser?.id || '')
       );
     }
     if (currentRole === 'intern') {
-      // Intern only sees tasks assigned to them
       return (
-        t.assigned_to_id === currentInternRecord?.id ||
-        t.assigned_to_name === currentInternRecord?.full_name ||
-        t.assigned_to_name === currentUser?.full_name
+        project.team_member_ids?.includes(currentUser?.id || '') ||
+        (currentInternRecord && currentInternRecord.assigned_project_id === project.id)
       );
     }
     return false;
   });
 
-  // 3. Projects
-  const filteredProjects = projects.filter((p) => {
+  const filteredDocuments = documents.filter((doc) => {
     if (currentRole === 'admin') return true;
     if (currentRole === 'coordinator') {
+      const docIntern = interns.find((i) => i.id === doc.intern_id);
       return (
-        p.project_lead_id === currentUser?.id ||
-        p.lead_name === currentUser?.full_name ||
-        p.team_member_ids.includes(currentUser?.id || '')
+        doc.owner_id === currentUser?.id ||
+        (docIntern &&
+          (docIntern.coordinator_id === currentUser?.id ||
+            docIntern.coordinator_name === currentUser?.full_name))
       );
     }
     if (currentRole === 'intern') {
-      // Intern only sees projects they are a member of
+      const isMyDoc =
+        doc.intern_id === currentUser?.id ||
+        (currentInternRecord && doc.intern_id === currentInternRecord.id);
+      return isMyDoc && (doc.status === 'Approved' || doc.status === 'Issued');
+    }
+    return false;
+  });
+
+  const filteredCheckins = checkins.filter((chk) => {
+    if (currentRole === 'admin') return true;
+    if (currentRole === 'coordinator') {
+      const chkIntern = interns.find((i) => i.id === chk.intern_id);
       return (
-        p.team_member_ids.includes(currentUser?.id || '') ||
-        p.team_member_names.includes(currentInternRecord?.full_name || '')
+        chkIntern &&
+        (chkIntern.coordinator_id === currentUser?.id ||
+          chkIntern.coordinator_name === currentUser?.full_name)
+      );
+    }
+    if (currentRole === 'intern') {
+      return (
+        chk.intern_id === currentUser?.id ||
+        (currentInternRecord && chk.intern_id === currentInternRecord.id)
       );
     }
     return false;
   });
 
-  // 4. Checkins
-  const filteredCheckins = checkins.filter((c) => {
-    if (currentRole === 'admin') return true;
-    if (currentRole === 'coordinator') {
-      const assignedIntern = interns.find((i) => i.id === c.intern_id);
-      return (
-        assignedIntern?.coordinator_id === currentUser?.id ||
-        assignedIntern?.coordinator_name === currentUser?.full_name
-      );
-    }
-    if (currentRole === 'intern') {
-      return (
-        c.intern_id === currentInternRecord?.id ||
-        c.intern_name === currentInternRecord?.full_name ||
-        c.intern_name === currentUser?.full_name
-      );
-    }
-    return false;
-  });
-
-  // 5. Documents
-  const filteredDocuments = documents.filter((d) => {
-    if (currentRole === 'admin') return true;
-    if (currentRole === 'coordinator') {
-      if (d.owner_id === currentUser?.id) return true;
-      if (d.intern_id) {
-        const assignedIntern = interns.find((i) => i.id === d.intern_id);
-        return (
-          assignedIntern?.coordinator_id === currentUser?.id ||
-          assignedIntern?.coordinator_name === currentUser?.full_name
-        );
-      }
-      return true;
-    }
-    if (currentRole === 'intern') {
-      // Intern can only see documents addressed to them and only if Approved or Issued!
-      const isTarget =
-        d.intern_id === currentInternRecord?.id ||
-        d.intern_name === currentInternRecord?.full_name;
-      return isTarget && (d.status === 'Approved' || d.status === 'Issued');
-    }
-    return false;
-  });
-
-  // 6. Performance Reviews
-  const filteredReviews = reviews.filter((r) => {
-    if (currentRole === 'admin') return true;
-    if (currentRole === 'coordinator') {
-      return r.reviewer_id === currentUser?.id || r.reviewer_name === currentUser?.full_name;
-    }
-    if (currentRole === 'intern') {
-      return (
-        r.intern_id === currentInternRecord?.id ||
-        r.intern_name === currentInternRecord?.full_name
-      );
-    }
-    return false;
-  });
-
-  // 7. Announcements
   const filteredAnnouncements = announcements.filter((a) => {
-    if (a.is_archived) return false;
     if (currentRole === 'admin') return true;
     if (a.audience === 'All') return true;
     if (currentRole === 'coordinator' && a.audience === 'Coordinators') return true;
     if (currentRole === 'intern' && a.audience === 'Interns') return true;
-    if (a.audience === 'Specific Role' && currentInternRecord?.role_title === a.target_role) {
-      return true;
+    return false;
+  });
+
+  const filteredReviews = reviews.filter((rev) => {
+    if (currentRole === 'admin') return true;
+    if (currentRole === 'coordinator') {
+      const assignedIntern = interns.find((i) => i.id === rev.intern_id);
+      return (
+        rev.reviewer_id === currentUser?.id ||
+        (assignedIntern &&
+          (assignedIntern.coordinator_id === currentUser?.id ||
+            assignedIntern.coordinator_name === currentUser?.full_name))
+      );
+    }
+    if (currentRole === 'intern') {
+      return (
+        rev.intern_id === currentUser?.id ||
+        (currentInternRecord && rev.intern_id === currentInternRecord.id)
+      );
     }
     return false;
   });
@@ -907,10 +935,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         filteredInterns,
         filteredTasks,
         filteredProjects,
-        filteredCheckins,
         filteredDocuments,
-        filteredReviews,
+        filteredCheckins,
         filteredAnnouncements,
+        filteredReviews,
         currentInternRecord,
       }}
     >

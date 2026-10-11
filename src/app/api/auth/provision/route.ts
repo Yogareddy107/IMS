@@ -1,14 +1,24 @@
 import { NextResponse } from 'next/server';
-import {
-  saveProvisionedAccount,
-  ProvisionedAccountRecord,
-} from '@/lib/auth/provisioned-store';
-import { UserRole } from '@/types';
+import { createClient } from '@supabase/supabase-js';
+import { UserProfile, UserRole } from '@/types';
+
+function getSupabaseClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+
+  if (url && key && url.startsWith('https://')) {
+    return createClient(url, key, { auth: { persistSession: false } });
+  }
+  return null;
+}
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { full_name, email, role, password, phone } = body || {};
+    const { full_name, email, role, phone } = body || {};
 
     if (!full_name || !email) {
       return NextResponse.json(
@@ -24,30 +34,40 @@ export async function POST(request: Request) {
         ? role
         : 'intern';
 
-    const finalPassword =
-      password && String(password).trim()
-        ? String(password).trim()
-        : `ISL@${Math.floor(1000 + Math.random() * 9000)}`;
+    const newId = `usr-${Date.now()}`;
+    const now = new Date().toISOString();
 
-    const newRecord: ProvisionedAccountRecord = {
-      id: `usr-${Date.now()}`,
+    const newProfile: UserProfile = {
+      id: newId,
       email: cleanEmail,
       full_name: cleanName,
       role: cleanRole,
-      password: finalPassword,
       phone: phone ? String(phone).trim() : '',
       status: 'active',
-      created_at: new Date().toISOString(),
+      created_at: now,
     };
 
-    const saved = await saveProvisionedAccount(newRecord);
-
-    const { password: _, ...publicProfile } = saved;
+    // Upsert directly into Supabase profiles table
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        await supabase.from('profiles').upsert({
+          id: newId,
+          email: cleanEmail,
+          full_name: cleanName,
+          role: cleanRole,
+          phone: phone ? String(phone).trim() : '',
+          status: 'active',
+          updated_at: now,
+        });
+      } catch (dbErr) {
+        console.warn('Database upsert note in /api/auth/provision:', dbErr);
+      }
+    }
 
     return NextResponse.json({
       success: true,
-      tempPassword: finalPassword,
-      account: publicProfile,
+      account: newProfile,
     });
   } catch (error) {
     console.error('API provision error:', error);
