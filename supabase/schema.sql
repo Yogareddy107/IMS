@@ -361,3 +361,13 @@ INSERT INTO public.projects (id, name, description, problem_statement, goals, pr
 VALUES
   ('proj-pri-1', 'IntraSphere Labs — Product Research & Innovation', 'Central cross-functional initiative focused on discovering, scoping, and prototyping scalable SaaS solutions for modern digital operations.', 'Organizations struggle with disconnected tools, slow feedback loops, and lack of verified data models during product development and talent scaling.', 'Deliver working prototypes, establish verified market fit criteria, streamline remote check-in workflows, and validate production architectures.', '1aba0833-091a-4d00-979b-976507530e0c', 'IntraSphere Admin', '2026-02-01', '2026-05-01', 'Active')
 ON CONFLICT (id) DO NOTHING;
+
+-- ==============================================================================
+-- 5. ENABLE SUPABASE REALTIME WEBSOCKETS BROADCASTING
+-- Allows live instantaneous multi-device updates across laptops, phones & desktops
+-- ==============================================================================
+DO $$ BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE public.tasks, public.interns, public.projects, public.onboarding_items, public.attendance_logs, public.announcements, public.documents, public.reviews, public.certificates, public.calendar_events, public.profiles, public.system_settings;
+EXCEPTION WHEN others THEN null;
+END $$;
+

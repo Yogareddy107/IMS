@@ -112,6 +112,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     loadSupabaseProfiles();
+
+    // Realtime WebSockets: Listen for user provisioning changes
+    const client = supabase;
+    if (client) {
+      const channel = client
+        .channel('ims-profiles-realtime-channel')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'profiles' },
+          (payload) => {
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const p = payload.new as {
+                id: string;
+                email: string;
+                full_name: string;
+                role?: string;
+                phone?: string;
+                avatar_url?: string | null;
+                status?: string;
+                created_at?: string;
+              };
+              if (p && p.email) {
+                const mapped: UserProfile = {
+                  id: p.id,
+                  email: p.email,
+                  full_name: p.full_name,
+                  role: (p.role as UserRole) || 'intern',
+                  phone: p.phone || '',
+                  avatar_url: p.avatar_url || null,
+                  status: (p.status as any) || 'active',
+                  created_at: p.created_at || new Date().toISOString(),
+                };
+                setAvailableProfiles((prev) => [
+                  mapped,
+                  ...prev.filter((item) => item.email.toLowerCase() !== mapped.email.toLowerCase()),
+                ]);
+              }
+            } else if (payload.eventType === 'DELETE') {
+              const oldId = (payload.old as { id: string })?.id;
+              if (oldId) {
+                setAvailableProfiles((prev) => prev.filter((item) => item.id !== oldId));
+              }
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        client.removeChannel(channel);
+      };
+    }
   }, []);
 
   /**

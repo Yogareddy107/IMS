@@ -210,6 +210,169 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     };
 
     loadSupabaseData();
+
+    // Setup Supabase Realtime WebSockets to sync updates instantly across all user screens
+    const realtimeChannel = client
+      .channel('ims-global-realtime-channel')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tasks' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const row = payload.new as Task;
+            setTasks((prev) => (prev.some((t) => t.id === row.id) ? prev : [row, ...prev]));
+          } else if (payload.eventType === 'UPDATE') {
+            const row = payload.new as Task;
+            setTasks((prev) => prev.map((t) => (t.id === row.id ? { ...t, ...row } : t)));
+          } else if (payload.eventType === 'DELETE') {
+            const oldId = (payload.old as { id: string })?.id;
+            if (oldId) setTasks((prev) => prev.filter((t) => t.id !== oldId));
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'announcements' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const row = payload.new as Announcement;
+            setAnnouncements((prev) => (prev.some((a) => a.id === row.id) ? prev : [row, ...prev]));
+          } else if (payload.eventType === 'UPDATE') {
+            const row = payload.new as Announcement;
+            setAnnouncements((prev) => prev.map((a) => (a.id === row.id ? { ...a, ...row } : a)));
+          } else if (payload.eventType === 'DELETE') {
+            const oldId = (payload.old as { id: string })?.id;
+            if (oldId) setAnnouncements((prev) => prev.filter((a) => a.id !== oldId));
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'attendance_logs' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const row = payload.new as CheckInLog;
+            setCheckins((prev) => (prev.some((c) => c.id === row.id) ? prev : [row, ...prev]));
+          } else if (payload.eventType === 'UPDATE') {
+            const row = payload.new as CheckInLog;
+            setCheckins((prev) => prev.map((c) => (c.id === row.id ? { ...c, ...row } : c)));
+          } else if (payload.eventType === 'DELETE') {
+            const oldId = (payload.old as { id: string })?.id;
+            if (oldId) setCheckins((prev) => prev.filter((c) => c.id !== oldId));
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'onboarding_items' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const row = payload.new as OnboardingItem;
+            setOnboardingItems((prev) => (prev.some((item) => item.id === row.id) ? prev : [...prev, row]));
+          } else if (payload.eventType === 'UPDATE') {
+            const row = payload.new as OnboardingItem;
+            setOnboardingItems((prev) => prev.map((item) => (item.id === row.id ? { ...item, ...row } : item)));
+          } else if (payload.eventType === 'DELETE') {
+            const oldId = (payload.old as { id: string })?.id;
+            if (oldId) setOnboardingItems((prev) => prev.filter((item) => item.id !== oldId));
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'interns' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const row = payload.new as Intern;
+            setInterns((prev) => (prev.some((i) => i.id === row.id) ? prev : [row, ...prev]));
+          } else if (payload.eventType === 'UPDATE') {
+            const row = payload.new as Intern;
+            setInterns((prev) => prev.map((i) => (i.id === row.id ? { ...i, ...row } : i)));
+          } else if (payload.eventType === 'DELETE') {
+            const oldId = (payload.old as { id: string })?.id;
+            if (oldId) setInterns((prev) => prev.filter((i) => i.id !== oldId));
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'projects' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const row = payload.new as Project;
+            setProjects((prev) => (prev.some((p) => p.id === row.id) ? prev : [row, ...prev]));
+          } else if (payload.eventType === 'UPDATE') {
+            const row = payload.new as Project;
+            setProjects((prev) => prev.map((p) => (p.id === row.id ? { ...p, ...row } : p)));
+          } else if (payload.eventType === 'DELETE') {
+            const oldId = (payload.old as { id: string })?.id;
+            if (oldId) setProjects((prev) => prev.filter((p) => p.id !== oldId));
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'documents' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const row = payload.new as IMSDocument;
+            setDocuments((prev) => (prev.some((d) => d.id === row.id) ? prev : [row, ...prev]));
+          } else if (payload.eventType === 'UPDATE') {
+            const row = payload.new as IMSDocument;
+            setDocuments((prev) => prev.map((d) => (d.id === row.id ? { ...d, ...row } : d)));
+          } else if (payload.eventType === 'DELETE') {
+            const oldId = (payload.old as { id: string })?.id;
+            if (oldId) setDocuments((prev) => prev.filter((d) => d.id !== oldId));
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'reviews' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const row = payload.new as PerformanceReview;
+            setReviews((prev) => (prev.some((r) => r.id === row.id) ? prev : [row, ...prev]));
+          } else if (payload.eventType === 'UPDATE') {
+            const row = payload.new as PerformanceReview;
+            setReviews((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...row } : r)));
+          } else if (payload.eventType === 'DELETE') {
+            const oldId = (payload.old as { id: string })?.id;
+            if (oldId) setReviews((prev) => prev.filter((r) => r.id !== oldId));
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'certificates' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const row = payload.new as Certificate;
+            setCertificates((prev) => (prev.some((c) => c.id === row.id) ? prev : [row, ...prev]));
+          } else if (payload.eventType === 'UPDATE') {
+            const row = payload.new as Certificate;
+            setCertificates((prev) => prev.map((c) => (c.id === row.id ? { ...c, ...row } : c)));
+          } else if (payload.eventType === 'DELETE') {
+            const oldId = (payload.old as { id: string })?.id;
+            if (oldId) setCertificates((prev) => prev.filter((c) => c.id !== oldId));
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'system_settings' },
+        (payload) => {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const row = payload.new as SystemSettings;
+            setSettings((prev) => ({ ...prev, ...row }));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      client.removeChannel(realtimeChannel);
+    };
   }, []);
 
   const logActivity = (action: string, module: string, details: string) => {
