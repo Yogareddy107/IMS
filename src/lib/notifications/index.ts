@@ -35,12 +35,28 @@ export interface NotificationResult {
   message?: string;
 }
 
-// 1. Browser Native Desktop Notification (OS level toast)
+// Register Service Worker for mobile push and background notifications
+export const registerServiceWorker = async (): Promise<ServiceWorkerRegistration | null> => {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+    return null;
+  }
+  try {
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    return reg;
+  } catch (e) {
+    console.warn('Service Worker registration skipped:', e);
+    return null;
+  }
+};
+
+// 1. Browser Native Desktop & Mobile OS Notification (Lock screen / Toast / Banner)
 export const requestDesktopNotificationPermission = async (): Promise<NotificationPermission> => {
   if (typeof window === 'undefined' || !('Notification' in window)) {
     return 'denied';
   }
   try {
+    // Register service worker in parallel for mobile support
+    registerServiceWorker().catch(() => {});
     const permission = await Notification.requestPermission();
     return permission;
   } catch {
@@ -48,18 +64,37 @@ export const requestDesktopNotificationPermission = async (): Promise<Notificati
   }
 };
 
-export const sendDesktopNotification = (title: string, body: string, actionUrl?: string) => {
+export const sendDesktopNotification = async (title: string, body: string, actionUrl?: string) => {
   if (typeof window === 'undefined' || !('Notification' in window)) return;
 
   if (Notification.permission === 'granted') {
-    try {
-      const notification = new Notification(`IntraSphere IMS: ${title}`, {
-        body,
-        icon: '/icon.svg',
-        badge: '/icon.svg',
-        tag: 'intrasphere-ims-alert-' + Date.now(),
-      });
+    const fullTitle = `IntraSphere IMS: ${title}`;
+    const options: NotificationOptions = {
+      body,
+      icon: '/icon.svg',
+      badge: '/icon.svg',
+      // @ts-expect-error - vibrate is supported in mobile Web Notifications API
+      vibrate: [100, 50, 100],
+      tag: 'intrasphere-ims-alert-' + Date.now(),
+      data: { url: actionUrl || '/' },
+    };
 
+    // A. Priority on Mobile (Android & iOS PWA): Use ServiceWorker showNotification
+    if ('serviceWorker' in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        if (reg && 'showNotification' in reg) {
+          await reg.showNotification(fullTitle, options);
+          return;
+        }
+      } catch (err) {
+        console.warn('ServiceWorker showNotification fallback:', err);
+      }
+    }
+
+    // B. Desktop fallback (Windows / macOS corner toasts)
+    try {
+      const notification = new Notification(fullTitle, options);
       if (actionUrl) {
         notification.onclick = () => {
           window.focus();

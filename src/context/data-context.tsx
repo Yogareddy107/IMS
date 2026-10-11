@@ -138,6 +138,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     loadState('settings', INITIAL_SETTINGS)
   );
 
+  // Register Service Worker for mobile push and lock-screen alerts
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch((err) => {
+        console.warn('IMS Service worker registration notice:', err);
+      });
+    }
+  }, []);
+
   // Debounced persistence to prevent blocking the main thread during high concurrency
   useEffect(() => {
     if (typeof window === 'undefined') return;

@@ -14,6 +14,7 @@ import {
   Bell,
   Mail,
   Monitor,
+  Smartphone,
   Send,
   ExternalLink,
 } from 'lucide-react';
@@ -159,27 +160,28 @@ export const SettingsModule: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-          {/* Method A: Native Desktop OS Notifications */}
+          {/* Method A: Native Desktop & Mobile OS Notifications */}
           <div className="p-4 bg-neutral-50 rounded-lg border border-[#E5E7EB] space-y-3 flex flex-col justify-between">
             <div className="space-y-1.5">
               <div className="flex items-center gap-2 font-semibold text-neutral-900">
                 <Monitor className="w-4 h-4 text-black" />
-                <span>1. Desktop OS Push Notifications (Native Toast)</span>
+                <Smartphone className="w-4 h-4 text-black" />
+                <span>1. Desktop & Mobile OS Push Notifications (Native Toast & Lock Screen)</span>
               </div>
               <p className="text-[#6B7280] leading-relaxed">
-                Pops up a native Windows / macOS notification toast on the corner of the user&apos;s screen. Works even when the browser is minimized or user is in another desktop application.
+                Pops up a native Windows / macOS toast on desktops, or a native lock-screen &amp; notification drawer banner on mobile (Android &amp; iOS PWA). Works even when the browser is minimized or user is inside other applications.
               </p>
             </div>
 
             <div className="pt-2 flex flex-wrap items-center gap-2">
               {desktopPermission !== 'granted' ? (
                 <Button variant="primary" size="sm" onClick={handleEnableDesktop}>
-                  Enable Desktop OS Alerts
+                  Enable OS Alerts (Desktop &amp; Mobile)
                 </Button>
               ) : (
                 <span className="text-[11px] font-medium text-neutral-700 flex items-center gap-1">
                   <CheckCircle2 className="w-3.5 h-3.5 text-black" />
-                  Permission Granted in Browser
+                  Permission Granted in Device Browser
                 </span>
               )}
 
