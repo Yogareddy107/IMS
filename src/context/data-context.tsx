@@ -304,6 +304,17 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     syncSupabase(() => supabase!.from('interns').insert(createdIntern));
     syncSupabase(() => supabase!.from('onboarding_items').insert(initialItems));
     syncSupabase(() => supabase!.from('documents').insert(offerDoc));
+    syncSupabase(() =>
+      supabase!.from('profiles').upsert({
+        id: id,
+        email: createdIntern.email.toLowerCase().trim(),
+        full_name: createdIntern.full_name.trim(),
+        role: 'intern',
+        phone: createdIntern.phone || '',
+        status: 'active',
+        created_at: now,
+      })
+    );
 
     logActivity('Added Intern', 'Interns', `Added intern ${createdIntern.full_name} (${createdIntern.role_title})`);
   };

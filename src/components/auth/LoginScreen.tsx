@@ -14,11 +14,28 @@ export const LoginScreen: React.FC = () => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const emailParam = params.get('email');
+      const shouldAutoLogin = params.get('login') === 'true';
       if (emailParam) {
-        setEmail(decodeURIComponent(emailParam).trim());
+        const clean = decodeURIComponent(emailParam).trim();
+        setEmail(clean);
+        if (shouldAutoLogin) {
+          setLoading(true);
+          login(clean)
+            .then((res) => {
+              if (!res.success) {
+                setErrorMessage(res.error || 'Access denied. Account not authorized.');
+              }
+            })
+            .catch(() => {
+              setErrorMessage('An error occurred during automatic sign-in.');
+            })
+            .finally(() => {
+              setLoading(false);
+            });
+        }
       }
     }
-  }, []);
+  }, [login]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
