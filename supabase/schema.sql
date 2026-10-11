@@ -464,3 +464,36 @@ CREATE POLICY "Interns manage own attendance"
       SELECT 1 FROM public.interns WHERE id = attendance_logs.intern_id AND user_id = auth.uid()
     )
   );
+
+-- ==============================================================================
+-- 17. PROVISIONED ACCOUNTS TABLE (Cross-device credentials and role synchronization)
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS public.provisioned_accounts (
+  id TEXT PRIMARY KEY,
+  email TEXT UNIQUE NOT NULL,
+  full_name TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'intern',
+  password TEXT NOT NULL,
+  phone TEXT DEFAULT '',
+  status TEXT DEFAULT 'active',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+CREATE INDEX IF NOT EXISTS idx_provisioned_accounts_email ON public.provisioned_accounts(email);
+
+ALTER TABLE public.provisioned_accounts ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow read provisioned_accounts"
+  ON public.provisioned_accounts FOR SELECT
+  USING (true);
+
+CREATE POLICY "Allow insert/update provisioned_accounts"
+  ON public.provisioned_accounts FOR ALL
+  USING (true)
+  WITH CHECK (true);
+
+-- Seed initial authorized coordinator account
+INSERT INTO public.provisioned_accounts (id, email, full_name, role, password, status)
+VALUES ('usr-yoga-coord', 'yogareddy107@gmail.com', 'Yoga Reddy', 'coordinator', 'ISL@50', 'active')
+ON CONFLICT (email) DO UPDATE SET password = EXCLUDED.password;

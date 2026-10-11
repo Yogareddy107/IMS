@@ -40,6 +40,16 @@ export const INITIAL_PROFILES: UserProfile[] = [
     status: 'active',
     created_at: new Date().toISOString(),
   },
+  {
+    id: 'usr-yoga-coord',
+    email: 'yogareddy107@gmail.com',
+    full_name: 'Yoga Reddy',
+    role: 'coordinator',
+    avatar_url: null,
+    phone: '',
+    status: 'active',
+    created_at: new Date().toISOString(),
+  },
 ];
 
 export const INITIAL_ROLES: InternshipRole[] = [
