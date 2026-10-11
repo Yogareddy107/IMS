@@ -165,10 +165,14 @@ export const SettingsModule: React.FC = () => {
             <Bell className="w-5 h-5 text-neutral-700" />
             <div>
               <h3 className="font-bold text-sm text-[#111111]">
-                Real Out-of-App Notifications (Email, Desktop OS Push & Webhook)
+                {currentRole === 'admin'
+                  ? 'Real Out-of-App Notifications (Email, Desktop OS Push & Webhook)'
+                  : 'Desktop & Mobile OS Push Notifications'}
               </h3>
               <p className="text-xs text-[#6B7280]">
-                Notify interns and staff when browser is minimized or user is working in other apps
+                {currentRole === 'admin'
+                  ? 'Notify interns and staff when browser is minimized or user is working in other apps'
+                  : 'Receive instant alerts on your desktop or mobile lock screen for tasks, announcements, and reviews'}
               </p>
             </div>
           </div>
@@ -178,14 +182,18 @@ export const SettingsModule: React.FC = () => {
           </Badge>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+        <div className={`grid grid-cols-1 ${currentRole === 'admin' ? 'md:grid-cols-2' : ''} gap-4 text-xs`}>
           {/* Method A: Native Desktop & Mobile OS Notifications */}
           <div className="p-4 bg-neutral-50 rounded-lg border border-[#E5E7EB] space-y-3 flex flex-col justify-between">
             <div className="space-y-1.5">
               <div className="flex items-center gap-2 font-semibold text-neutral-900">
                 <Monitor className="w-4 h-4 text-black" />
                 <Smartphone className="w-4 h-4 text-black" />
-                <span>1. Desktop & Mobile OS Push Notifications (Native Toast & Lock Screen)</span>
+                <span>
+                  {currentRole === 'admin'
+                    ? '1. Desktop & Mobile OS Push Notifications (Native Toast & Lock Screen)'
+                    : 'Desktop & Mobile OS Push Notifications (Native Toast & Lock Screen)'}
+                </span>
               </div>
               <p className="text-[#6B7280] leading-relaxed">
                 Pops up a native Windows / macOS toast on desktops, or a native lock-screen &amp; notification drawer banner on mobile (Android &amp; iOS PWA). Works even when the browser is minimized or user is inside other applications.
@@ -215,47 +223,49 @@ export const SettingsModule: React.FC = () => {
             </div>
           </div>
 
-          {/* Method B: Email Notifications */}
-          <div className="p-4 bg-neutral-50 rounded-lg border border-[#E5E7EB] space-y-3 flex flex-col justify-between">
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 font-semibold text-neutral-900">
-                  <Mail className="w-4 h-4 text-black" />
-                  <span>2. Transactional Email Alerts (Inbox Push)</span>
+          {/* Method B: Email Notifications — Visible ONLY to Admin */}
+          {currentRole === 'admin' && (
+            <div className="p-4 bg-neutral-50 rounded-lg border border-[#E5E7EB] space-y-3 flex flex-col justify-between">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 font-semibold text-neutral-900">
+                    <Mail className="w-4 h-4 text-black" />
+                    <span>2. Transactional Email Alerts (Inbox Push)</span>
+                  </div>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-neutral-200 text-neutral-900">
+                    Resend: Active
+                  </span>
                 </div>
-                <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-neutral-200 text-neutral-900">
-                  Resend: Active
-                </span>
-              </div>
-              <p className="text-[#6B7280] leading-relaxed">
-                Sends official alerts for task assignments, blocker reports, announcements, and reviews directly to inboxes. Pops up on recipient phones (iOS / Android) and desktop email clients even when the browser is completely closed.
-              </p>
-            </div>
-
-            <div className="pt-2 space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  variant="primary"
-                  size="sm"
-                  icon={<Send className="w-3 h-3" />}
-                  onClick={handleSendTestEmail}
-                  disabled={emailTesting}
-                >
-                  {emailTesting ? 'Sending Email...' : 'Send Live Test Email'}
-                </Button>
-
-                <span className="text-[11px] text-[#6B7280]">
-                  Target: <code className="text-black font-semibold font-mono">{currentUser?.email || 'teamintrasphere@gmail.com'}</code>
-                </span>
+                <p className="text-[#6B7280] leading-relaxed">
+                  Sends official alerts for task assignments, blocker reports, announcements, and reviews directly to inboxes. Pops up on recipient phones (iOS / Android) and desktop email clients even when the browser is completely closed.
+                </p>
               </div>
 
-              {emailResult && (
-                <div className="text-[11px] p-2 rounded bg-neutral-100 border border-neutral-300 text-neutral-900 font-medium">
-                  {emailResult}
+              <div className="pt-2 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    icon={<Send className="w-3 h-3" />}
+                    onClick={handleSendTestEmail}
+                    disabled={emailTesting}
+                  >
+                    {emailTesting ? 'Sending Email...' : 'Send Live Test Email'}
+                  </Button>
+
+                  <span className="text-[11px] text-[#6B7280]">
+                    Target: <code className="text-black font-semibold font-mono">{currentUser?.email || 'teamintrasphere@gmail.com'}</code>
+                  </span>
                 </div>
-              )}
+
+                {emailResult && (
+                  <div className="text-[11px] p-2 rounded bg-neutral-100 border border-neutral-300 text-neutral-900 font-medium">
+                    {emailResult}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
 
